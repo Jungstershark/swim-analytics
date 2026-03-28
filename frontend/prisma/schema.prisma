@@ -1,0 +1,67 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Swimmer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  age       Int?
+  team      String?
+  results   Result[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([team])
+}
+
+model Meet {
+  id        Int       @id @default(autoincrement())
+  name      String
+  date      DateTime  @map("date")     // startDate in backend, mapped to "date" column
+  endDate   DateTime?
+  location  String?
+  results   Result[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([date])
+}
+
+model Result {
+  id            Int      @id @default(autoincrement())
+  swimmerId     Int
+  meetId        Int
+  event         String
+  time          String?
+  seedTime      String?
+  placement     Int?
+  isDQ          Boolean  @default(false)
+  dqCode        String?
+  dqDescription String?
+  isGuest       Boolean  @default(false)
+  qualifier     String?
+  reactionTime  String?
+  splits        String?  // JSON string
+  round         String?  // "Prelim", "Final", "Timed Final", "Semifinal"
+  swimDate      DateTime?
+  contentHash   String?  // SHA-256 for deduplication
+  swimmer       Swimmer  @relation(fields: [swimmerId], references: [id])
+  meet          Meet     @relation(fields: [meetId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([swimmerId])
+  @@index([meetId])
+  @@index([event])
+  @@index([contentHash])
+  @@index([swimmerId, meetId, event, round, swimDate])
+}

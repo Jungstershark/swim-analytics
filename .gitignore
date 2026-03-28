@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+backend/venv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Next.js
+.next/
+out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (test PDFs and parsed outputs)
+data/
+
+# Misc
+*.log
