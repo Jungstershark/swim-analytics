@@ -6,6 +6,7 @@ import {
   getSwimmer,
   getResult,
   getSwimmerRelays,
+  displayName,
   type SwimmerDetail,
   type ResultDetail,
   type RelayResultBrief,
@@ -104,12 +105,12 @@ export default function SwimmerProfilePage() {
             <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
-            <span className="text-ssa-navy font-medium">{swimmer.name}</span>
+            <span className="text-ssa-navy font-medium">{displayName(swimmer.name)}</span>
           </nav>
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-ssa-navy">{swimmer.name}</h1>
+              <h1 className="text-2xl font-bold text-ssa-navy">{displayName(swimmer.name)}</h1>
               <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                 {swimmer.age && <span>Age {swimmer.age}</span>}
                 {swimmer.team && (

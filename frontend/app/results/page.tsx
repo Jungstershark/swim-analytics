@@ -6,6 +6,7 @@ import {
   listMeets,
   listEvents,
   getResult,
+  displayName,
   type CombinedResultItem,
   type ResultDetail,
   type PaginationInfo,
@@ -43,6 +44,8 @@ export default function ResultsPage() {
   // Filters
   const [search, setSearch] = useState("");
   const [eventFilter, setEventFilter] = useState("");
+  const [eventSearchInput, setEventSearchInput] = useState("");
+  const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
   const [meetId, setMeetId] = useState<number | undefined>();
   const [showDqOnly, setShowDqOnly] = useState(false);
   const [page, setPage] = useState(1);
@@ -169,21 +172,64 @@ export default function ResultsPage() {
               />
             </div>
 
-            {/* Event filter */}
-            <select
-              value={eventFilter}
-              onChange={(e) => { setEventFilter(e.target.value); setPage(1); }}
-              className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
-                         focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
-                         transition-colors appearance-none cursor-pointer
-                         bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]
-                         bg-[length:16px] bg-[right_12px_center] bg-no-repeat pr-10"
-            >
-              <option value="">All Events</option>
-              {availableEvents.map((evt) => (
-                <option key={evt} value={evt}>{evt}</option>
-              ))}
-            </select>
+            {/* Event filter — searchable dropdown */}
+            <div className="relative min-w-[300px]">
+              <input
+                type="text"
+                placeholder="All Events"
+                value={eventDropdownOpen ? eventSearchInput : (eventFilter || "")}
+                onChange={(e) => {
+                  setEventSearchInput(e.target.value);
+                  setEventDropdownOpen(true);
+                }}
+                onFocus={() => {
+                  setEventSearchInput(eventFilter);
+                  setEventDropdownOpen(true);
+                }}
+                onBlur={() => {
+                  // Delay to allow click on dropdown item
+                  setTimeout(() => setEventDropdownOpen(false), 200);
+                }}
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
+                           focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
+                           placeholder:text-gray-400 transition-colors"
+              />
+              {eventFilter && !eventDropdownOpen && (
+                <button
+                  onClick={() => { setEventFilter(""); setEventSearchInput(""); setPage(1); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+              {eventDropdownOpen && (
+                <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setEventFilter(""); setEventSearchInput(""); setPage(1); setEventDropdownOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                  >
+                    All Events
+                  </button>
+                  {availableEvents
+                    .filter((evt) => !eventSearchInput || evt.toLowerCase().includes(eventSearchInput.toLowerCase()))
+                    .map((evt) => (
+                      <button
+                        key={evt}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setEventFilter(evt); setEventSearchInput(evt); setPage(1); setEventDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-ssa-teal/5 transition-colors ${
+                          evt === eventFilter ? "text-ssa-teal font-medium bg-ssa-teal/5" : "text-gray-700"
+                        }`}
+                      >
+                        {evt}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
 
             {/* Meet filter */}
             <select
@@ -342,7 +388,7 @@ export default function ResultsPage() {
                                       href={`/swimmers/${result.swimmer.id}`}
                                       className="text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors"
                                     >
-                                      {result.swimmer.name}
+                                      {displayName(result.swimmer.name)}
                                     </a>
                                   </div>
                                 ) : (

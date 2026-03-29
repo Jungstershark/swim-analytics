@@ -7,6 +7,15 @@
 
 const API_BASE = "/api";
 
+/**
+ * Clean display name — strip placeholder surnames like "., " from single-name swimmers.
+ */
+export function displayName(name: string): string {
+  // "., Lineysha" → "Lineysha"
+  if (name.startsWith("., ")) return name.slice(3);
+  return name;
+}
+
 // ---------------------------------------------------------------------------
 // Types — mirrors the FastAPI Pydantic schemas
 // ---------------------------------------------------------------------------
