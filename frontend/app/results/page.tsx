@@ -487,21 +487,24 @@ export default function ResultsPage() {
                               <tr key={`${result.id}-legs`} className="bg-ssa-navy/5">
                                 <td colSpan={9} className="px-6 py-3">
                                   <div className="flex flex-wrap gap-3">
-                                    {result.legs.map((leg) => {
+                                    {[...result.legs].sort((a, b) => a.leg_number - b.leg_number).map((leg) => {
                                       let legSplits: {cumulative:string;split:string|null;distance:number}[] = [];
                                       if (leg.splits) { try { legSplits = JSON.parse(leg.splits); } catch {} }
                                       return (
-                                        <div key={leg.leg_number} className="text-center rounded-lg px-3 py-2 border bg-white border-gray-200">
-                                          <div className="text-[10px] text-gray-400 uppercase">Leg {leg.leg_number}</div>
-                                          <a href={`/swimmers/${leg.swimmer.id}`} className="text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors">
+                                        <div key={leg.leg_number} className="rounded-lg px-4 py-3 border bg-white border-gray-200 min-w-[140px]">
+                                          <div className="text-[10px] text-gray-400 uppercase text-center">Leg {leg.leg_number}</div>
+                                          <a href={`/swimmers/${leg.swimmer.id}`} className="block text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors text-center">
                                             {leg.swimmer.name.replace(", ", " ")}
                                           </a>
-                                          <div className="text-xs font-mono font-bold text-ssa-navy mt-0.5">{leg.split_time || "--"}</div>
-                                          {leg.reaction_time && <div className="text-[10px] font-mono text-gray-400">RT {leg.reaction_time}</div>}
+                                          <div className="text-sm font-mono font-bold text-ssa-navy mt-1 text-center">{leg.split_time || "--"}</div>
+                                          {leg.reaction_time && <div className="text-[10px] font-mono text-gray-400 text-center">RT {leg.reaction_time}</div>}
                                           {legSplits.length > 0 && (
-                                            <div className="flex gap-1 mt-1 justify-center">
+                                            <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
                                               {legSplits.map((s, i) => (
-                                                <div key={i} className="text-[10px] font-mono text-gray-400">{s.cumulative}</div>
+                                                <div key={i} className="flex justify-between text-[10px] font-mono">
+                                                  <span className="text-gray-400">{s.distance}m</span>
+                                                  <span className="text-gray-600">{s.cumulative}</span>
+                                                </div>
                                               ))}
                                             </div>
                                           )}
