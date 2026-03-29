@@ -141,7 +141,8 @@ class RelayLeg(Base):
     gender: Mapped[str | None] = mapped_column(String, nullable=True)  # "M" or "W" (from mixed relays)
     isGuest: Mapped[bool] = mapped_column(Boolean, default=False)
     reactionTime: Mapped[str | None] = mapped_column(String, nullable=True)  # Exchange RT
-    splitTime: Mapped[str | None] = mapped_column(String, nullable=True)  # Their leg time
+    splitTime: Mapped[str | None] = mapped_column(String, nullable=True)  # Their total leg time
+    splits: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON: per-swimmer lap splits
 
     relay_result: Mapped["RelayResult"] = relationship(back_populates="legs")
     swimmer: Mapped["Swimmer"] = relationship()

@@ -303,6 +303,77 @@ export async function listResults(
   return apiFetch(`/results?${q}`);
 }
 
+// Relay types
+export interface RelayLegBrief {
+  leg_number: number;
+  swimmer: SwimmerBrief;
+  split_time: string | null;
+  reaction_time: string | null;
+  splits: string | null;
+  is_guest: boolean;
+  gender: string | null;
+}
+
+export interface RelayResultBrief {
+  id: number;
+  event: string;
+  team_name: string;
+  relay_letter: string | null;
+  time: string | null;
+  seed_time: string | null;
+  placement: number | null;
+  is_dq: boolean;
+  is_exhibition: boolean;
+  round: string | null;
+  swim_date: string | null;
+  legs: RelayLegBrief[];
+  meet: MeetBrief;
+}
+
+export interface CombinedResultItem {
+  type: "individual" | "relay";
+  id: number;
+  event: string;
+  time: string | null;
+  seed_time: string | null;
+  placement: number | null;
+  is_dq: boolean;
+  round: string | null;
+  swim_date: string | null;
+  qualifier: string | null;
+  swimmer: SwimmerBrief | null;
+  is_guest: boolean;
+  team_name: string | null;
+  relay_letter: string | null;
+  is_exhibition: boolean;
+  legs: RelayLegBrief[];
+  meet: MeetBrief;
+}
+
+export async function getSwimmerRelays(id: number): Promise<{ data: RelayResultBrief[] }> {
+  return apiFetch(`/swimmers/${id}/relays`);
+}
+
+export async function listAllResults(
+  params: ListResultsParams = {}
+): Promise<PaginatedResponse<CombinedResultItem>> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.swimmer) q.set("swimmer", params.swimmer);
+  if (params.swimmer_id) q.set("swimmer_id", String(params.swimmer_id));
+  if (params.meet_id) q.set("meet_id", String(params.meet_id));
+  if (params.event) q.set("event", params.event);
+  if (params.is_dq !== undefined) q.set("is_dq", String(params.is_dq));
+  return apiFetch(`/results/all?${q}`);
+}
+
+export async function listEvents(meetId?: number): Promise<{ events: string[] }> {
+  const q = new URLSearchParams();
+  if (meetId) q.set("meet_id", String(meetId));
+  return apiFetch(`/events?${q}`);
+}
+
 export async function getResult(id: number): Promise<ResultDetail> {
   return apiFetch(`/results/${id}`);
 }

@@ -76,7 +76,8 @@ class ParsedRelayLeg:
     age: Optional[int]
     gender: Optional[str] = None   # "M" or "W" (mixed relays: "W8", "M10")
     reaction_time: Optional[str] = None  # Exchange RT
-    split_time: Optional[str] = None     # Computed leg time
+    split_time: Optional[str] = None     # Computed total leg time
+    splits: list[Split] = field(default_factory=list)  # Per-swimmer lap splits
 
 
 @dataclass
@@ -756,11 +757,22 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     for j, sp in enumerate(rr.splits):
                         sp.distance = interval * (j + 1)
 
-                    # Compute per-leg times
-                    leg_times = compute_relay_leg_times(rr.splits, num_legs=len(rr.legs) or 4)
-                    for leg, lt in zip(rr.legs, leg_times):
+                    # Compute per-leg times and assign per-swimmer splits
+                    num_legs = len(rr.legs) or 4
+                    leg_times = compute_relay_leg_times(rr.splits, num_legs=num_legs)
+                    splits_per_leg = n_splits // num_legs if num_legs > 0 else 0
+                    for leg_idx, (leg, lt) in enumerate(zip(rr.legs, leg_times)):
                         if lt:
                             leg.split_time = lt
+                        # Slice this swimmer's lap splits from the team splits
+                        if splits_per_leg > 0:
+                            start = leg_idx * splits_per_leg
+                            end = start + splits_per_leg
+                            leg_splits = rr.splits[start:end]
+                            # Re-number distances relative to this swimmer's leg
+                            for j, sp in enumerate(leg_splits):
+                                sp.distance = interval * (j + 1)
+                            leg.splits = leg_splits
 
     meet = ParsedMeet(
         meet_name=meet_name,

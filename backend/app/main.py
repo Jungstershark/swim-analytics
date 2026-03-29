@@ -34,6 +34,8 @@ from .models import Meet, RelayLeg, RelayResult, Result, Swimmer
 from .parsers.base import detect_and_parse
 from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
 from .schemas import (
+    CombinedResultItem,
+    CombinedResultsResponse,
     ConfidenceCheck,
     DuplicateEntry,
     EventGroup,
@@ -55,6 +57,10 @@ from .schemas import (
     SwimmerDetail,
     SwimmerListItem,
     SwimmerListResponse,
+    RelayLegBrief,
+    RelayListResponse,
+    RelayResultBrief,
+    RelayResultDetail,
     UploadPreviewResponse,
     UploadResponse,
 )
@@ -174,6 +180,76 @@ def _result_to_brief(r: Result) -> ResultBrief:
     )
 
 
+def _relay_leg_brief(leg: RelayLeg) -> RelayLegBrief:
+    swimmer = SwimmerBrief(id=leg.swimmerId or 0, name=leg.swimmerName, age=leg.age, team=None)
+    if leg.swimmer:
+        swimmer = _swimmer_brief(leg.swimmer)
+    return RelayLegBrief(
+        leg_number=leg.legNumber,
+        swimmer=swimmer,
+        split_time=leg.splitTime,
+        reaction_time=leg.reactionTime,
+        splits=leg.splits,
+        is_guest=leg.isGuest,
+        gender=leg.gender,
+    )
+
+
+def _relay_to_brief(rr: RelayResult) -> RelayResultBrief:
+    return RelayResultBrief(
+        id=rr.id,
+        event=rr.event,
+        team_name=rr.teamName,
+        relay_letter=rr.relayLetter,
+        time=rr.time,
+        seed_time=rr.seedTime,
+        placement=rr.placement,
+        is_dq=rr.isDQ,
+        is_exhibition=rr.isExhibition,
+        round=rr.round,
+        swim_date=rr.swimDate,
+        legs=[_relay_leg_brief(leg) for leg in rr.legs],
+        meet=_meet_brief(rr.meet),
+    )
+
+
+def _result_to_combined(r: Result) -> CombinedResultItem:
+    return CombinedResultItem(
+        type="individual",
+        id=r.id,
+        event=r.event,
+        time=r.time,
+        seed_time=r.seedTime,
+        placement=r.placement,
+        is_dq=r.isDQ,
+        round=r.round,
+        swim_date=r.swimDate,
+        qualifier=r.qualifier,
+        swimmer=_swimmer_brief(r.swimmer),
+        is_guest=r.isGuest,
+        meet=_meet_brief(r.meet),
+    )
+
+
+def _relay_to_combined(rr: RelayResult) -> CombinedResultItem:
+    return CombinedResultItem(
+        type="relay",
+        id=rr.id,
+        event=rr.event,
+        time=rr.time,
+        seed_time=rr.seedTime,
+        placement=rr.placement,
+        is_dq=rr.isDQ,
+        round=rr.round,
+        swim_date=rr.swimDate,
+        team_name=rr.teamName,
+        relay_letter=rr.relayLetter,
+        is_exhibition=rr.isExhibition,
+        legs=[_relay_leg_brief(leg) for leg in rr.legs],
+        meet=_meet_brief(rr.meet),
+    )
+
+
 def _result_to_detail(r: Result) -> ResultDetail:
     """Full result with splits and reaction time."""
     return ResultDetail(
@@ -234,6 +310,8 @@ def upload_preview(file: UploadFile = File(...)):
             for ev in parsed.events:
                 round_name = _time_type_to_round(ev.time_type)
                 rows = []
+
+                # Individual results
                 for pr in ev.results:
                     all_swimmers.add(pr.name)
                     rows.append(PreviewResultRow(
@@ -249,6 +327,25 @@ def upload_preview(file: UploadFile = File(...)):
                         is_guest=pr.is_guest,
                         qualifier=pr.qualifier,
                     ))
+
+                # Relay results — show as team entries
+                for rr in ev.relay_results:
+                    for leg in rr.legs:
+                        all_swimmers.add(leg.name)
+                    rows.append(PreviewResultRow(
+                        event=ev.event_name,
+                        name=f"{rr.team_name} {rr.relay_letter or ''}".strip(),
+                        age=None,
+                        team=", ".join(leg.name.replace(", ", " ") for leg in rr.legs) if rr.legs else "",
+                        time=rr.finals_time,
+                        seed_time=rr.seed_time,
+                        round=round_name,
+                        placement=rr.placement,
+                        is_dq=rr.is_dq,
+                        is_guest=False,
+                        qualifier=None,
+                    ))
+
                 total_results += len(rows)
                 # Preview sample: first 10 + last 3 for spot-checking edge cases
                 if len(rows) > 13:
@@ -452,6 +549,7 @@ def _process_parsed_meet(
                     isGuest=leg.is_guest,
                     reactionTime=leg.reaction_time,
                     splitTime=leg.split_time,
+                    splits=_splits_to_json(leg.splits),
                 )
                 db.add(relay_leg)
 
@@ -784,6 +882,136 @@ def get_swimmer(swimmer_id: int, db: Session = Depends(get_db)):
         personal_bests=personal_bests,
         recent_results=recent_items,
         stats=stats,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/events — distinct event names for filter dropdowns
+# ---------------------------------------------------------------------------
+
+@app.get("/api/events")
+def list_events(meet_id: Optional[int] = None, db: Session = Depends(get_db)):
+    q1 = db.query(distinct(Result.event))
+    q2 = db.query(distinct(RelayResult.event))
+    if meet_id:
+        q1 = q1.filter(Result.meetId == meet_id)
+        q2 = q2.filter(RelayResult.meetId == meet_id)
+    individual = {row[0] for row in q1.all()}
+    relay = {row[0] for row in q2.all()}
+    events = sorted(individual | relay)
+    return {"events": events}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/relays
+# ---------------------------------------------------------------------------
+
+@app.get("/api/relays", response_model=RelayListResponse)
+def list_relays(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    meet_id: Optional[int] = None,
+    event: Optional[str] = None,
+    swimmer: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(RelayResult).options(
+        joinedload(RelayResult.meet),
+        joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer),
+    )
+    if meet_id:
+        q = q.filter(RelayResult.meetId == meet_id)
+    if event:
+        q = q.filter(RelayResult.event.ilike(f"%{event}%"))
+    if swimmer:
+        q = q.join(RelayLeg).join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
+    q = q.order_by(RelayResult.event, RelayResult.placement.asc())
+
+    results, pagination = _paginate(q, page, limit, db)
+    data = [_relay_to_brief(rr) for rr in results]
+    return RelayListResponse(data=data, pagination=pagination)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/swimmers/{id}/relays
+# ---------------------------------------------------------------------------
+
+@app.get("/api/swimmers/{swimmer_id}/relays")
+def get_swimmer_relays(swimmer_id: int, db: Session = Depends(get_db)):
+    legs = db.query(RelayLeg).filter(
+        RelayLeg.swimmerId == swimmer_id
+    ).options(
+        joinedload(RelayLeg.relay_result).joinedload(RelayResult.meet),
+        joinedload(RelayLeg.relay_result).joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer),
+    ).all()
+
+    relays = []
+    for leg in legs:
+        relays.append(_relay_to_brief(leg.relay_result))
+    return {"data": relays}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/results/all — combined individual + relay
+# ---------------------------------------------------------------------------
+
+@app.get("/api/results/all", response_model=CombinedResultsResponse)
+def list_all_results(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    swimmer: Optional[str] = None,
+    swimmer_id: Optional[int] = None,
+    meet_id: Optional[int] = None,
+    event: Optional[str] = None,
+    is_dq: Optional[bool] = None,
+    db: Session = Depends(get_db),
+):
+    # Individual results
+    q1 = db.query(Result).options(joinedload(Result.swimmer), joinedload(Result.meet))
+    if swimmer:
+        q1 = q1.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
+    if swimmer_id:
+        q1 = q1.filter(Result.swimmerId == swimmer_id)
+    if meet_id:
+        q1 = q1.filter(Result.meetId == meet_id)
+    if event:
+        q1 = q1.filter(Result.event.ilike(f"%{event}%"))
+    if is_dq is not None:
+        q1 = q1.filter(Result.isDQ == is_dq)
+    individual = q1.all()
+
+    # Relay results
+    q2 = db.query(RelayResult).options(
+        joinedload(RelayResult.meet),
+        joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer),
+    )
+    if meet_id:
+        q2 = q2.filter(RelayResult.meetId == meet_id)
+    if event:
+        q2 = q2.filter(RelayResult.event.ilike(f"%{event}%"))
+    if swimmer or swimmer_id:
+        q2 = q2.join(RelayLeg)
+        if swimmer:
+            q2 = q2.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
+        if swimmer_id:
+            q2 = q2.filter(RelayLeg.swimmerId == swimmer_id)
+    if is_dq is not None:
+        q2 = q2.filter(RelayResult.isDQ == is_dq)
+    relays = q2.all()
+
+    # Combine and sort by event name
+    combined = [_result_to_combined(r) for r in individual] + [_relay_to_combined(rr) for rr in relays]
+    combined.sort(key=lambda x: (x.event, x.placement or 9999))
+
+    # Manual pagination
+    total = len(combined)
+    total_pages = math.ceil(total / limit) if limit > 0 else 0
+    start = (page - 1) * limit
+    page_data = combined[start:start + limit]
+
+    return CombinedResultsResponse(
+        data=page_data,
+        pagination=PaginationInfo(page=page, limit=limit, total=total, total_pages=total_pages),
     )
 
 

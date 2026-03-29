@@ -142,6 +142,83 @@ class ResultDetail(ResultBase):
 
 
 # ---------------------------------------------------------------------------
+# Relay
+# ---------------------------------------------------------------------------
+
+class RelayLegBrief(BaseModel):
+    leg_number: int
+    swimmer: SwimmerBrief
+    split_time: Optional[str] = None
+    reaction_time: Optional[str] = None
+    splits: Optional[str] = None  # JSON: per-swimmer lap splits
+    is_guest: bool = False
+    gender: Optional[str] = None
+
+
+class RelayResultBrief(BaseModel):
+    id: int
+    event: str
+    team_name: str
+    relay_letter: Optional[str] = None
+    time: Optional[str] = None
+    seed_time: Optional[str] = None
+    placement: Optional[int] = None
+    is_dq: bool = False
+    is_exhibition: bool = False
+    round: Optional[str] = None
+    swim_date: Optional[datetime] = None
+    legs: list[RelayLegBrief] = []
+    meet: MeetBrief
+    model_config = {"from_attributes": True}
+
+
+class RelayResultDetail(RelayResultBrief):
+    """Full relay with splits and reaction time."""
+    reaction_time: Optional[str] = None
+    splits: Optional[str] = None
+    dq_code: Optional[str] = None
+    dq_description: Optional[str] = None
+
+
+class RelayListResponse(BaseModel):
+    data: list[RelayResultBrief]
+    pagination: PaginationInfo
+
+
+# ---------------------------------------------------------------------------
+# Combined (individual + relay)
+# ---------------------------------------------------------------------------
+
+class CombinedResultItem(BaseModel):
+    """A unified result that can be either individual or relay."""
+    type: str  # "individual" or "relay"
+    id: int
+    event: str
+    time: Optional[str] = None
+    seed_time: Optional[str] = None
+    placement: Optional[int] = None
+    is_dq: bool = False
+    round: Optional[str] = None
+    swim_date: Optional[datetime] = None
+    qualifier: Optional[str] = None
+    # Individual fields
+    swimmer: Optional[SwimmerBrief] = None
+    is_guest: bool = False
+    # Relay fields
+    team_name: Optional[str] = None
+    relay_letter: Optional[str] = None
+    is_exhibition: bool = False
+    legs: list[RelayLegBrief] = []
+    # Common
+    meet: MeetBrief
+
+
+class CombinedResultsResponse(BaseModel):
+    data: list[CombinedResultItem]
+    pagination: PaginationInfo
+
+
+# ---------------------------------------------------------------------------
 # Upload
 # ---------------------------------------------------------------------------
 

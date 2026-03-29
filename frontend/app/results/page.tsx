@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   listResults,
   listMeets,
+  listEvents,
   getResult,
   type ResultListItem,
   type ResultDetail,
@@ -63,16 +64,12 @@ export default function ResultsPage() {
       .catch(() => {});
   }, []);
 
-  // --- Load available events from first results load ---
+  // --- Load available events for filter dropdown ---
   useEffect(() => {
-    // Fetch a large batch to extract unique events
-    listResults({ limit: 200, sort: "event", order: "asc" })
-      .then((res) => {
-        const events = Array.from(new Set(res.data.map((r) => r.event))).sort();
-        setAvailableEvents(events);
-      })
+    listEvents(meetId)
+      .then((res) => setAvailableEvents(res.events))
       .catch(() => {});
-  }, []);
+  }, [meetId]);
 
   // --- Fetch results ---
   const fetchResults = useCallback(async () => {
