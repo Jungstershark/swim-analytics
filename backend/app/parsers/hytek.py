@@ -764,6 +764,9 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     for leg_idx, (leg, lt) in enumerate(zip(rr.legs, leg_times)):
                         if lt:
                             leg.split_time = lt
+                        # Leg 1's RT is the team's start RT
+                        if leg_idx == 0 and leg.reaction_time is None and rr.reaction_time:
+                            leg.reaction_time = rr.reaction_time
                         # Slice this swimmer's lap splits from the team splits
                         if splits_per_leg > 0:
                             start = leg_idx * splits_per_leg
