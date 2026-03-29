@@ -165,6 +165,14 @@ class ConfidenceCheck(BaseModel):
     passed: bool
 
 
+class PreviewEventGroup(BaseModel):
+    """An event with its results in the upload preview."""
+    event: str
+    round: str
+    result_count: int
+    results: list[PreviewResultRow]
+
+
 class UploadPreviewResponse(BaseModel):
     """Response from /api/upload/preview — parsed data without DB insertion."""
     parser_format: str
@@ -178,7 +186,7 @@ class UploadPreviewResponse(BaseModel):
     events_count: int
     results_count: int
     swimmers_count: int
-    sample_results: list[PreviewResultRow]
+    events: list[PreviewEventGroup]
 
 
 class UploadResponse(BaseModel):

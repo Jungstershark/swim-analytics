@@ -19,6 +19,16 @@ export default function UploadPage() {
   const [preview, setPreview] = useState<UploadPreviewResponse | null>(null);
   const [result, setResult] = useState<UploadResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+
+  function toggleEvent(index: number) {
+    setExpandedEvents((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
 
   function handleFileSelect(file: File | null) {
     if (file) {
@@ -274,57 +284,96 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Sample results table */}
+            {/* Events list with drill-down */}
             <div className="card overflow-hidden">
               <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
                 <h3 className="text-sm font-semibold text-ssa-navy">
-                  Sample Results (first {preview.sample_results.length} of {preview.results_count.toLocaleString()})
+                  Parsed Events ({preview.events.length}) — click to expand
                 </h3>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-ssa-navy">
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase">Event</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase">Swimmer</th>
-                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-12">Age</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase hidden md:table-cell">Club</th>
-                      <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-300 uppercase w-24">Time</th>
-                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-20">Round</th>
-                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-16">Place</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {preview.sample_results.map((r, i) => (
-                      <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} ${r.is_dq ? "bg-red-50/60" : ""}`}>
-                        <td className="px-4 py-2 text-sm text-gray-700">{r.event}</td>
-                        <td className="px-4 py-2 text-sm font-semibold text-gray-900">
-                          {r.is_guest && (
-                            <span className="text-xs text-amber-600 bg-amber-50 px-1 py-0.5 rounded mr-1">Guest</span>
-                          )}
-                          {r.name}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-600 text-center">{r.age ?? "-"}</td>
-                        <td className="px-4 py-2 text-sm text-gray-500 hidden md:table-cell">{r.team}</td>
-                        <td className="px-4 py-2 text-right">
-                          {r.is_dq ? (
-                            <span className="text-xs font-semibold text-red-600">DQ</span>
-                          ) : (
-                            <span className="text-sm font-mono font-bold text-ssa-navy">{r.time || "--"}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-center">
+              <div className="divide-y divide-gray-100">
+                {preview.events.map((eg, idx) => {
+                  const isOpen = expandedEvents.has(idx);
+                  return (
+                    <div key={idx}>
+                      {/* Event row — clickable */}
+                      <button
+                        onClick={() => toggleEvent(idx)}
+                        className="w-full flex items-center justify-between px-6 py-3 hover:bg-ssa-teal/5 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <svg className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                          </svg>
+                          <span className="text-sm font-medium text-gray-700">{eg.event}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
                           <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                            r.round === "Final" ? "bg-ssa-navy/10 text-ssa-navy" : "bg-gray-100 text-gray-500"
+                            eg.round === "Final" ? "bg-ssa-navy/10 text-ssa-navy" : "bg-gray-100 text-gray-500"
                           }`}>
-                            {r.round}
+                            {eg.round}
                           </span>
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-500 text-center">{r.placement ?? "--"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <span className="text-xs text-gray-400">{eg.result_count} results</span>
+                        </div>
+                      </button>
+
+                      {/* Expanded results table */}
+                      {isOpen && (
+                        <div className="bg-gray-50/50 border-t border-gray-100">
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="bg-ssa-navy/80">
+                                  <th className="px-4 py-2 text-center text-xs font-semibold text-gray-300 uppercase w-16">Place</th>
+                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-300 uppercase">Swimmer</th>
+                                  <th className="px-4 py-2 text-center text-xs font-semibold text-gray-300 uppercase w-12">Age</th>
+                                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-300 uppercase hidden md:table-cell">Club</th>
+                                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-300 uppercase w-24">Seed</th>
+                                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-300 uppercase w-24">Time</th>
+                                  <th className="px-4 py-2 text-center text-xs font-semibold text-gray-300 uppercase w-20">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {eg.results.map((r, i) => (
+                                  <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} ${r.is_dq ? "bg-red-50/60" : ""}`}>
+                                    <td className="px-4 py-2 text-sm text-gray-500 text-center">{r.placement ?? "--"}</td>
+                                    <td className="px-4 py-2 text-sm font-semibold text-gray-900">
+                                      {r.is_guest && (
+                                        <span className="text-xs text-amber-600 bg-amber-50 px-1 py-0.5 rounded mr-1">Guest</span>
+                                      )}
+                                      {r.name}
+                                    </td>
+                                    <td className="px-4 py-2 text-sm text-gray-600 text-center">{r.age ?? "-"}</td>
+                                    <td className="px-4 py-2 text-sm text-gray-500 hidden md:table-cell">{r.team}</td>
+                                    <td className="px-4 py-2 text-right text-sm font-mono text-gray-400">{r.seed_time || "--"}</td>
+                                    <td className="px-4 py-2 text-right">
+                                      {r.is_dq ? (
+                                        <span className="text-xs font-semibold text-red-600">DQ</span>
+                                      ) : (
+                                        <span className="text-sm font-mono font-bold text-ssa-navy">{r.time || "--"}</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      {r.is_dq ? (
+                                        <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">DQ</span>
+                                      ) : r.qualifier ? (
+                                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                          r.qualifier === "qMTS" ? "bg-ssa-teal/10 text-ssa-teal" : "bg-blue-50 text-blue-700"
+                                        }`}>
+                                          {r.qualifier}
+                                        </span>
+                                      ) : null}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

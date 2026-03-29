@@ -42,6 +42,7 @@ from .schemas import (
     MeetListResponse,
     PaginationInfo,
     PersonalBest,
+    PreviewEventGroup,
     PreviewResultRow,
     ProgressionDataPoint,
     ProgressionResponse,
@@ -203,8 +204,8 @@ def upload_preview(file: UploadFile = File(...)):
     """Parse PDF/ZIP and return preview without inserting to DB."""
     pdf_paths = _extract_pdfs_from_upload(file)
 
-    all_results: list[PreviewResultRow] = []
-    all_events = 0
+    event_groups: list[PreviewEventGroup] = []
+    total_results = 0
     all_swimmers: set[str] = set()
     meet_name = ""
     meet_dates = None
@@ -229,12 +230,12 @@ def upload_preview(file: UploadFile = File(...)):
             if not session_label:
                 session_label = parsed.session
 
-            all_events += len(parsed.events)
             for ev in parsed.events:
                 round_name = _time_type_to_round(ev.time_type)
+                rows = []
                 for pr in ev.results:
                     all_swimmers.add(pr.name)
-                    all_results.append(PreviewResultRow(
+                    rows.append(PreviewResultRow(
                         event=ev.event_name,
                         name=pr.name,
                         age=pr.age,
@@ -247,6 +248,13 @@ def upload_preview(file: UploadFile = File(...)):
                         is_guest=pr.is_guest,
                         qualifier=pr.qualifier,
                     ))
+                total_results += len(rows)
+                event_groups.append(PreviewEventGroup(
+                    event=ev.event_name,
+                    round=round_name,
+                    result_count=len(rows),
+                    results=rows,
+                ))
     finally:
         for p in pdf_paths:
             p.unlink(missing_ok=True)
@@ -265,10 +273,10 @@ def upload_preview(file: UploadFile = File(...)):
         meet_name=meet_name,
         meet_dates=meet_dates,
         session=session_label,
-        events_count=all_events,
-        results_count=len(all_results),
+        events_count=len(event_groups),
+        results_count=total_results,
         swimmers_count=len(all_swimmers),
-        sample_results=all_results[:50],
+        events=event_groups,
     )
 
 

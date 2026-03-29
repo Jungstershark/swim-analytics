@@ -118,6 +118,13 @@ export interface ConfidenceCheck {
   passed: boolean;
 }
 
+export interface PreviewEventGroup {
+  event: string;
+  round: string;
+  result_count: number;
+  results: PreviewResultRow[];
+}
+
 export interface UploadPreviewResponse {
   parser_format: string;
   confidence_score: number;
@@ -130,7 +137,7 @@ export interface UploadPreviewResponse {
   events_count: number;
   results_count: number;
   swimmers_count: number;
-  sample_results: PreviewResultRow[];
+  events: PreviewEventGroup[];
 }
 
 export interface UploadResponse {
