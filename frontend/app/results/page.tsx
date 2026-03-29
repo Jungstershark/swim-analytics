@@ -2,11 +2,11 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  listResults,
+  listAllResults,
   listMeets,
   listEvents,
   getResult,
-  type ResultListItem,
+  type CombinedResultItem,
   type ResultDetail,
   type PaginationInfo,
   type MeetListItem,
@@ -14,7 +14,7 @@ import {
 
 export default function ResultsPage() {
   // --- State ---
-  const [results, setResults] = useState<ResultListItem[]>([]);
+  const [results, setResults] = useState<CombinedResultItem[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -76,15 +76,13 @@ export default function ResultsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await listResults({
+      const res = await listAllResults({
         page,
         limit,
         swimmer: search || undefined,
         event: eventFilter || undefined,
         meet_id: meetId,
         is_dq: showDqOnly ? true : undefined,
-        sort: "placement",
-        order: "asc",
       });
       setResults(res.data);
       setPagination(res.pagination);
@@ -309,7 +307,8 @@ export default function ResultsPage() {
                         </tr>
                       ))
                     : results.map((result, index) => {
-                        const isExpanded = expandedRow === result.id;
+                        const rowKey = `${result.type}-${result.id}`;
+                        const isExpanded = expandedRow === result.id && ((result.type === "individual") || (result.type === "relay"));
 
                         return (
                           <React.Fragment key={result.id}>
@@ -322,39 +321,48 @@ export default function ResultsPage() {
                             >
                               {/* Event */}
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <span className="text-sm text-gray-700 font-medium">
-                                  {result.event}
-                                </span>
+                                <div>
+                                  <span className="text-sm text-gray-700 font-medium">{result.event}</span>
+                                  {result.type === "relay" && result.team_name && (
+                                    <div className="text-xs text-gray-400">{result.team_name} {result.relay_letter}</div>
+                                  )}
+                                </div>
                               </td>
 
-                              {/* Swimmer (clickable) */}
+                              {/* Swimmer / Team */}
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  {result.is_guest && (
-                                    <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-medium" title="Guest — foreign/visiting swimmer, not eligible for local placement">
-                                      Guest
-                                    </span>
-                                  )}
-                                  <a
-                                    href={`/swimmers/${result.swimmer.id}`}
-                                    className="text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors"
-                                  >
-                                    {result.swimmer.name}
-                                  </a>
-                                </div>
+                                {result.type === "individual" && result.swimmer ? (
+                                  <div className="flex items-center gap-1.5">
+                                    {result.is_guest && (
+                                      <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-medium" title="Guest — foreign/visiting swimmer, not eligible for local placement">
+                                        Guest
+                                      </span>
+                                    )}
+                                    <a
+                                      href={`/swimmers/${result.swimmer.id}`}
+                                      className="text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors"
+                                    >
+                                      {result.swimmer.name}
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-gray-600">
+                                    {result.legs?.map(l => l.swimmer.name.replace(", ", " ")).join(", ") || result.team_name}
+                                  </span>
+                                )}
                               </td>
 
                               {/* Age */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <span className="text-sm text-gray-600">
-                                  {result.swimmer.age ?? "-"}
+                                  {result.type === "individual" && result.swimmer ? (result.swimmer.age ?? "-") : "-"}
                                 </span>
                               </td>
 
                               {/* Club */}
                               <td className="px-6 py-4 whitespace-nowrap hidden md:table-cell">
                                 <span className="text-sm text-gray-600">
-                                  {result.swimmer.team}
+                                  {result.type === "individual" && result.swimmer ? result.swimmer.team : result.team_name}
                                 </span>
                               </td>
 
@@ -407,11 +415,12 @@ export default function ResultsPage() {
                               {/* Status */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 {result.is_dq ? (
-                                  <span
-                                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 ring-1 ring-red-200 cursor-help"
-                                    title={result.dq_code ? `${result.dq_code}: ${result.dq_description}` : "Disqualified"}
-                                  >
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 ring-1 ring-red-200">
                                     DQ
+                                  </span>
+                                ) : result.type === "relay" ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+                                    Relay
                                   </span>
                                 ) : result.qualifier === "qMTS" ? (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-ssa-teal/10 text-ssa-teal ring-1 ring-ssa-teal/20">
@@ -424,12 +433,12 @@ export default function ResultsPage() {
                                 ) : null}
                               </td>
 
-                              {/* Splits toggle */}
+                              {/* Details toggle */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <button
-                                  onClick={() => handleToggleSplits(result.id)}
+                                  onClick={() => result.type === "individual" ? handleToggleSplits(result.id) : setExpandedRow(isExpanded ? null : result.id)}
                                   className="text-ssa-teal hover:text-ssa-navy transition-colors"
-                                  title="View splits"
+                                  title={result.type === "relay" ? "View relay legs" : "View splits"}
                                 >
                                   <svg className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -438,8 +447,8 @@ export default function ResultsPage() {
                               </td>
                             </tr>
 
-                            {/* Expanded splits row */}
-                            {isExpanded && (
+                            {/* Expanded details row */}
+                            {isExpanded && result.type === "individual" && (
                               <tr key={`${result.id}-splits`} className="bg-ssa-navy/5">
                                 <td colSpan={9} className="px-6 py-3">
                                   {loadingSplits ? (
@@ -471,6 +480,35 @@ export default function ResultsPage() {
                                   ) : (
                                     <div className="text-xs text-gray-400">No split data available</div>
                                   )}
+                                </td>
+                              </tr>
+                            )}
+                            {isExpanded && result.type === "relay" && result.legs && (
+                              <tr key={`${result.id}-legs`} className="bg-ssa-navy/5">
+                                <td colSpan={9} className="px-6 py-3">
+                                  <div className="flex flex-wrap gap-3">
+                                    {result.legs.map((leg) => {
+                                      let legSplits: {cumulative:string;split:string|null;distance:number}[] = [];
+                                      if (leg.splits) { try { legSplits = JSON.parse(leg.splits); } catch {} }
+                                      return (
+                                        <div key={leg.leg_number} className="text-center rounded-lg px-3 py-2 border bg-white border-gray-200">
+                                          <div className="text-[10px] text-gray-400 uppercase">Leg {leg.leg_number}</div>
+                                          <a href={`/swimmers/${leg.swimmer.id}`} className="text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors">
+                                            {leg.swimmer.name.replace(", ", " ")}
+                                          </a>
+                                          <div className="text-xs font-mono font-bold text-ssa-navy mt-0.5">{leg.split_time || "--"}</div>
+                                          {leg.reaction_time && <div className="text-[10px] font-mono text-gray-400">RT {leg.reaction_time}</div>}
+                                          {legSplits.length > 0 && (
+                                            <div className="flex gap-1 mt-1 justify-center">
+                                              {legSplits.map((s, i) => (
+                                                <div key={i} className="text-[10px] font-mono text-gray-400">{s.cumulative}</div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </td>
                               </tr>
                             )}
