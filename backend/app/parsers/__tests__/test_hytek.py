@@ -300,8 +300,16 @@ class TestRealPDF:
     """Integration tests against the real 56th SNAG Seniors PDF."""
 
     @pytest.fixture(scope="class")
-    def meet(self):
+    def parsed(self):
         return parse_hytek_pdf(PDF_PATH)
+
+    @pytest.fixture(scope="class")
+    def meet(self, parsed):
+        return parsed[0]
+
+    @pytest.fixture(scope="class")
+    def confidence(self, parsed):
+        return parsed[1]
 
     def test_meet_name(self, meet):
         assert meet.meet_name == "56th SNAG Seniors"
@@ -309,6 +317,10 @@ class TestRealPDF:
     def test_meet_dates(self, meet):
         assert "17/3/2026" in meet.meet_dates
         assert "22/3/2026" in meet.meet_dates
+
+    def test_confidence_passes(self, confidence):
+        assert confidence.passed
+        assert confidence.score >= 0.6
 
     def test_session(self, meet):
         assert meet.session == "Day 1 Session 1"

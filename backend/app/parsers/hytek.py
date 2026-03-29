@@ -110,13 +110,23 @@ RE_TIME_STANDARD = re.compile(
     r"^(\d+:[\d.]+|[\d.]+)\s+.+MTS"
 )
 
-# Column header: "Name Age Team Seed Time Prelim Time"
+# Column header variants:
+#   Prelim PDF:  "Name Age Team Seed Time Prelim Time"
+#   Final PDF:   "Name Age Team Prelim Time Finals Time"
+#   Timed Final: "Name Age Team Seed Time Finals Time"
 RE_COLUMN_HEADER = re.compile(
-    r"^\s*Name\s+Age\s+Team\s+Seed\s+Time\s+(Prelim Time|Finals Time)\s*$"
+    r"^\s*Name\s+Age\s+Team\s+"
+    r"(?:"
+    r"Seed\s+Time\s+(Prelim Time)"           # Prelim PDF
+    r"|Prelim\s+Time\s+(Finals Time)"         # Final PDF (has both columns)
+    r"|Seed\s+Time\s+(Finals Time)"           # Timed final / juniors
+    r")\s*$"
 )
 
-# "Preliminaries" or "Finals" section marker
-RE_SECTION_MARKER = re.compile(r"^(Preliminaries|Finals)\s*$")
+# Section markers: "Preliminaries", "Finals", "A - Final", "B - Final", "C - Final"
+RE_SECTION_MARKER = re.compile(
+    r"^(Preliminaries|Finals|[A-Z]\s*-\s*Final)\s*$"
+)
 
 # Result line patterns
 # Normal: "1 WU, Dylan Jiaxu 14 Pacific Swimming Club 2:19.50 2:18.62 qMTS"
@@ -319,7 +329,7 @@ def _is_dq_code_line(line: str) -> bool:
     return bool(RE_DQ_CODE.match(line.strip()))
 
 
-def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
+def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceReport]:
     """
     Parse extracted page texts into a ParsedMeet.
 
@@ -327,12 +337,15 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
         pages_text: List of strings, one per PDF page.
 
     Returns:
-        ParsedMeet with all events and results.
+        Tuple of (ParsedMeet, ConfidenceReport).
     """
     meet_name = ""
     meet_dates = None
     session = None
     events: list[ParsedEvent] = []
+    total_lines = 0
+    classified_lines = 0
+    unmatched_lines: list[str] = []
     current_event: Optional[ParsedEvent] = None
     current_result: Optional[ParsedResult] = None
     time_type = "Prelim Time"
@@ -350,6 +363,8 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
             line = raw_line.strip()
             if not line:
                 continue
+
+            total_lines += 1
 
             # Skip page headers
             if RE_PAGE_HEADER.search(line):
@@ -416,10 +431,11 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
                 current_event.time_standard = m.group(1)
                 continue
 
-            # Column header — detect time type
+            # Column header — detect time type (round)
             m = RE_COLUMN_HEADER.match(line)
             if m:
-                time_type = m.group(1)
+                # Exactly one group is non-None
+                time_type = m.group(1) or m.group(2) or m.group(3) or "Finals Time"
                 if current_event:
                     current_event.time_type = time_type
                 continue
@@ -506,6 +522,11 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
                 current_event.results.append(current_result)
                 continue
 
+            # Line matched nothing — track as unmatched
+            # (Skip known noise: repeated meet headers, empty-ish lines, page numbers)
+            if not RE_MEET_HEADER.match(line) and not line.isdigit():
+                unmatched_lines.append(line)
+
     # Post-process: assign split distances
     for event in events:
         if event.distance:
@@ -520,11 +541,83 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
                     for j, sp in enumerate(result.splits):
                         sp.distance = interval * (j + 1)
 
-    return ParsedMeet(
+    meet = ParsedMeet(
         meet_name=meet_name,
         meet_dates=meet_dates,
         session=session,
         events=events,
+    )
+
+    classified = total_lines - len(unmatched_lines)
+    confidence = compute_confidence(meet, total_lines, classified, unmatched_lines)
+
+    return meet, confidence
+
+
+# ---------------------------------------------------------------------------
+# Confidence scoring
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ConfidenceReport:
+    """Result of confidence checks on parsed data."""
+    score: float                     # 0.0 – 1.0
+    checks: dict[str, bool]          # individual checks passed/failed
+    total_lines: int = 0
+    classified_lines: int = 0        # lines matched by a regex
+    unmatched_lines: list[str] = field(default_factory=list)  # sample of unmatched
+
+    @property
+    def passed(self) -> bool:
+        return self.score >= 0.6
+
+
+def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int,
+                       unmatched_lines: list[str]) -> ConfidenceReport:
+    """Score how confident we are in the parsed output."""
+    checks: dict[str, bool] = {}
+
+    # 1. Meet name extracted?
+    checks["meet_name"] = bool(meet.meet_name)
+
+    # 2. Meet dates extracted?
+    checks["meet_dates"] = bool(meet.meet_dates)
+
+    # 3. At least one event found?
+    checks["has_events"] = len(meet.events) > 0
+
+    # 4. At least one result found?
+    checks["has_results"] = meet.total_results > 0
+
+    # 5. All events have time_type set?
+    checks["all_events_typed"] = all(
+        ev.time_type in ("Prelim Time", "Finals Time") for ev in meet.events
+    )
+
+    # 6. >80% of non-blank lines classified?
+    line_ratio = classified_lines / max(total_lines, 1)
+    checks["line_coverage"] = line_ratio > 0.80
+
+    # 7. No results with empty name?
+    checks["no_empty_names"] = all(
+        bool(r.name) for ev in meet.events for r in ev.results
+    )
+
+    # 8. All times are valid format?
+    checks["valid_times"] = all(
+        r.finals_time is None or bool(re.match(r"^\d+:[\d.]+$|^[\d.]+$", r.finals_time))
+        for ev in meet.events for r in ev.results
+    )
+
+    passed_count = sum(1 for v in checks.values() if v)
+    score = passed_count / len(checks)
+
+    return ConfidenceReport(
+        score=round(score, 3),
+        checks=checks,
+        total_lines=total_lines,
+        classified_lines=classified_lines,
+        unmatched_lines=unmatched_lines[:20],  # keep sample
     )
 
 
@@ -532,7 +625,7 @@ def parse_hytek_text(pages_text: list[str]) -> ParsedMeet:
 # High-level: parse a PDF file
 # ---------------------------------------------------------------------------
 
-def parse_hytek_pdf(pdf_path: str | Path) -> ParsedMeet:
+def parse_hytek_pdf(pdf_path: str | Path) -> tuple[ParsedMeet, ConfidenceReport]:
     """
     Parse a HY-TEK Meet Manager PDF file.
 
@@ -540,7 +633,7 @@ def parse_hytek_pdf(pdf_path: str | Path) -> ParsedMeet:
         pdf_path: Path to the PDF file.
 
     Returns:
-        ParsedMeet with all events and results.
+        Tuple of (ParsedMeet, ConfidenceReport).
     """
     pdf_path = Path(pdf_path)
     if not pdf_path.exists():
@@ -593,14 +686,21 @@ if __name__ == "__main__":
     print(f"Parsing: {pdf_path}")
     print("=" * 80)
 
-    meet = parse_hytek_pdf(pdf_path)
+    meet, confidence = parse_hytek_pdf(pdf_path)
 
-    print(f"Meet:     {meet.meet_name}")
-    print(f"Dates:    {meet.meet_dates}")
-    print(f"Session:  {meet.session}")
-    print(f"Events:   {len(meet.events)}")
-    print(f"Results:  {meet.total_results}")
-    print(f"Swimmers: {len(meet.unique_swimmers)}")
+    print(f"Meet:       {meet.meet_name}")
+    print(f"Dates:      {meet.meet_dates}")
+    print(f"Session:    {meet.session}")
+    print(f"Events:     {len(meet.events)}")
+    print(f"Results:    {meet.total_results}")
+    print(f"Swimmers:   {len(meet.unique_swimmers)}")
+    print(f"Confidence: {confidence.score:.1%} ({'PASS' if confidence.passed else 'FAIL'})")
+    for check, ok in confidence.checks.items():
+        print(f"  {'✓' if ok else '✗'} {check}")
+    if confidence.unmatched_lines:
+        print(f"Unmatched lines ({len(confidence.unmatched_lines)}):")
+        for ul in confidence.unmatched_lines[:5]:
+            print(f"  ? {ul}")
     print("=" * 80)
 
     for event in meet.events:

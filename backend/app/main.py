@@ -31,7 +31,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from .database import Base, engine, get_db
 from .models import Meet, Result, Swimmer
-from .parsers.hytek import parse_hytek_pdf, time_to_seconds
+from .parsers.base import detect_and_parse
+from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
 from .schemas import (
     EventGroup,
     MeetBrief,
@@ -304,12 +305,24 @@ def upload_results(
     try:
         for pdf_path in pdf_paths:
             try:
-                parsed = parse_hytek_pdf(pdf_path)
+                parsed, confidence, parser_format = detect_and_parse(pdf_path)
+            except ValueError as e:
+                all_errors.append(f"Unsupported format: {pdf_path.name}: {e}")
+                continue
             except Exception as e:
                 all_errors.append(f"Failed to parse {pdf_path.name}: {e}")
                 continue
             finally:
                 pdf_path.unlink(missing_ok=True)
+
+            # Reject low-confidence parses
+            if not confidence.passed:
+                failed_checks = [k for k, v in confidence.checks.items() if not v]
+                all_errors.append(
+                    f"Parse rejected (confidence {confidence.score:.0%}): "
+                    f"failed checks: {', '.join(failed_checks)}"
+                )
+                continue
 
             # Parse meet dates
             meet_start = datetime.now()
@@ -337,7 +350,7 @@ def upload_results(
                     Meet.name == parsed.meet_name, Meet.startDate == meet_start
                 ).first()
                 if not meet:
-                    meet = Meet(name=parsed.meet_name, startDate=meet_start, endDate=meet_end)
+                    meet = Meet(name=parsed.meet_name, startDate=meet_start, endDate=meet_end, parserFormat=parser_format)
                     db.add(meet)
                     db.flush()
                 elif meet_end and not meet.endDate:
