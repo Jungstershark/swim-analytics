@@ -19,13 +19,15 @@ export default function UploadPage() {
   const [preview, setPreview] = useState<UploadPreviewResponse | null>(null);
   const [result, setResult] = useState<UploadResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+  const [progress, setProgress] = useState(0);
+  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  const [eventSearch, setEventSearch] = useState("");
 
-  function toggleEvent(index: number) {
+  function toggleEvent(key: string) {
     setExpandedEvents((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -50,14 +52,27 @@ export default function UploadPage() {
     setLoading(true);
     setError("");
     setPreview(null);
+    setProgress(0);
+
+    // Animate progress bar (estimate ~3s per MB)
+    const estimatedMs = Math.max(5000, (selectedFile.size / 1024 / 1024) * 3000);
+    const interval = setInterval(() => {
+      setProgress((p) => Math.min(p + 2, 90)); // cap at 90% until done
+    }, estimatedMs / 45);
+
     try {
       const res = await previewUpload(selectedFile);
+      setProgress(100);
       setPreview(res);
+      setExpandedEvents(new Set<string>());
+      setEventSearch("");
       setStep("preview");
     } catch (e: any) {
-      setError(e.message || "Failed to parse file");
+      setError(e.message || "Failed to parse file. The file may be too large or the server timed out.");
     } finally {
+      clearInterval(interval);
       setLoading(false);
+      setProgress(0);
     }
   }
 
@@ -65,14 +80,25 @@ export default function UploadPage() {
     if (!selectedFile) return;
     setStep("uploading");
     setError("");
+    setProgress(0);
+
+    const estimatedMs = Math.max(5000, (selectedFile.size / 1024 / 1024) * 5000);
+    const interval = setInterval(() => {
+      setProgress((p) => Math.min(p + 2, 90));
+    }, estimatedMs / 45);
+
     try {
       const res = await uploadResults(selectedFile, { replace: replaceMode });
+      setProgress(100);
       setResult(res);
       setStep("done");
       setSelectedFile(null);
     } catch (e: any) {
       setError(e.message || "Failed to upload");
       setStep("preview");
+    } finally {
+      clearInterval(interval);
+      setProgress(0);
     }
   }
 
@@ -178,27 +204,33 @@ export default function UploadPage() {
             </div>
 
             {step === "select" && (
-              <button
-                onClick={handlePreview}
-                disabled={!selectedFile || loading}
-                className={`w-full mt-4 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
-                  !selectedFile || loading
-                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                    : "btn-primary justify-center"
-                }`}
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Analyzing...
-                  </span>
-                ) : (
-                  "Preview & Validate"
+              <>
+                <button
+                  onClick={handlePreview}
+                  disabled={!selectedFile || loading}
+                  className={`w-full mt-4 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
+                    !selectedFile || loading
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "btn-primary justify-center"
+                  }`}
+                >
+                  {loading ? "Analyzing..." : "Preview & Validate"}
+                </button>
+                {loading && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                      <span>Parsing {selectedFile?.name.endsWith(".zip") ? "ZIP" : "PDF"}...</span>
+                      <span>{Math.round(progress)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-ssa-teal h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
                 )}
-              </button>
+              </>
             )}
           </div>
         )}
@@ -286,19 +318,31 @@ export default function UploadPage() {
 
             {/* Events list with drill-down */}
             <div className="card overflow-hidden">
-              <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+              <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center gap-3">
                 <h3 className="text-sm font-semibold text-ssa-navy">
-                  Parsed Events ({preview.events.length}) — click to expand
+                  Parsed Events ({preview.events.length})
                 </h3>
+                <input
+                  type="text"
+                  placeholder="Filter events..."
+                  value={eventSearch}
+                  onChange={(e) => setEventSearch(e.target.value)}
+                  className="flex-1 max-w-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
+                             placeholder:text-gray-400"
+                />
               </div>
               <div className="divide-y divide-gray-100">
-                {preview.events.map((eg, idx) => {
-                  const isOpen = expandedEvents.has(idx);
+                {preview.events.filter((eg) =>
+                  !eventSearch || eg.event.toLowerCase().includes(eventSearch.toLowerCase())
+                ).map((eg) => {
+                  const eventKey = `${eg.event}|${eg.round}`;
+                  const isOpen = expandedEvents.has(eventKey);
                   return (
-                    <div key={idx}>
+                    <div key={eventKey}>
                       {/* Event row — clickable */}
                       <button
-                        onClick={() => toggleEvent(idx)}
+                        onClick={() => toggleEvent(eventKey)}
                         className="w-full flex items-center justify-between px-6 py-3 hover:bg-ssa-teal/5 transition-colors text-left"
                       >
                         <div className="flex items-center gap-3">
@@ -419,12 +463,18 @@ export default function UploadPage() {
 
         {/* ============ UPLOADING STATE ============ */}
         {step === "uploading" && (
-          <div className="max-w-2xl mt-6 card p-8 text-center">
-            <svg className="animate-spin w-8 h-8 mx-auto text-ssa-teal" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <p className="text-sm font-medium text-ssa-navy mt-4">Uploading and saving to database...</p>
+          <div className="max-w-2xl mt-6 card p-8">
+            <p className="text-sm font-medium text-ssa-navy mb-3 text-center">Uploading and saving to database...</p>
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <span>Processing...</span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-ssa-teal h-2 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -454,9 +504,40 @@ export default function UploadPage() {
                   <span className="font-medium text-gray-900">{result.swimmers_count}</span>
                 </div>
                 {result.duplicates_skipped > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Duplicates Skipped</span>
-                    <span className="font-medium text-amber-600">{result.duplicates_skipped}</span>
+                  <div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Duplicates Skipped</span>
+                      <span className="font-medium text-amber-600">{result.duplicates_skipped}</span>
+                    </div>
+                    {result.duplicates.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-amber-600 cursor-pointer hover:text-amber-700">
+                          View {result.duplicates.length} skipped entries
+                        </summary>
+                        <div className="mt-2 bg-amber-50 rounded p-3 max-h-48 overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left text-gray-500">
+                                <th className="pb-1">Event</th>
+                                <th className="pb-1">Name</th>
+                                <th className="pb-1">Round</th>
+                                <th className="pb-1 text-right">Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {result.duplicates.map((d, i) => (
+                                <tr key={i} className="border-t border-amber-100">
+                                  <td className="py-1 text-gray-600">{d.event}</td>
+                                  <td className="py-1 text-gray-700 font-medium">{d.name}</td>
+                                  <td className="py-1 text-gray-500">{d.round}</td>
+                                  <td className="py-1 text-right font-mono text-gray-600">{d.time || "--"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    )}
                   </div>
                 )}
               </div>

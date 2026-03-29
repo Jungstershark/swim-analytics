@@ -62,7 +62,39 @@ class ParsedEvent:
     course: str                    # "LC" or "SC"
     time_standard: Optional[str]   # e.g. "2:47.17"
     time_type: str                 # "Prelim Time" or "Finals Time"
+    is_relay: bool = False
     results: list[ParsedResult] = field(default_factory=list)
+    relay_results: list["ParsedRelayResult"] = field(default_factory=list)
+
+
+@dataclass
+class ParsedRelayLeg:
+    """One leg within a relay result."""
+    leg_number: int                # 1-4
+    name: str
+    is_guest: bool
+    age: Optional[int]
+    gender: Optional[str] = None   # "M" or "W" (mixed relays: "W8", "M10")
+    reaction_time: Optional[str] = None  # Exchange RT
+    split_time: Optional[str] = None     # Computed leg time
+
+
+@dataclass
+class ParsedRelayResult:
+    """One team's relay result."""
+    team_name: str                 # e.g. "Olympians Swimming (Can)"
+    relay_letter: Optional[str]    # "A", "B", "C", etc.
+    placement: Optional[int]
+    seed_time: Optional[str]
+    finals_time: Optional[str]
+    time_type: str                 # "Prelim Time" or "Finals Time"
+    is_dq: bool
+    dq_code: Optional[str] = None
+    dq_description: Optional[str] = None
+    is_exhibition: bool = False    # Times prefixed with X
+    reaction_time: Optional[str] = None
+    splits: list[Split] = field(default_factory=list)
+    legs: list[ParsedRelayLeg] = field(default_factory=list)
 
 
 @dataclass
@@ -78,8 +110,17 @@ class ParsedMeet:
         return sum(len(e.results) for e in self.events)
 
     @property
+    def total_relay_results(self) -> int:
+        return sum(len(e.relay_results) for e in self.events)
+
+    @property
     def unique_swimmers(self) -> set[str]:
-        return {r.name for e in self.events for r in e.results}
+        swimmers = {r.name for e in self.events for r in e.results}
+        for e in self.events:
+            for rr in e.relay_results:
+                for leg in rr.legs:
+                    swimmers.add(leg.name)
+        return swimmers
 
 
 # ---------------------------------------------------------------------------
@@ -150,11 +191,92 @@ RE_REACTION_TIME = re.compile(r"r:\+?([\d.]+)")
 RE_CUMULATIVE_TIME = re.compile(r"(\d+:[\d.]+|(?<!\()[\d]+\.[\d]+)")
 RE_SPLIT_DELTA = re.compile(r"\(([\d.]+)\)")
 
+# Relay column header: "Team Relay Seed Time Finals Time" or "Team Relay Seed Time Prelim Time"
+RE_RELAY_COLUMN_HEADER = re.compile(
+    r"^\s*Team\s+Relay\s+(?:Seed\s+Time|Prelim\s+Time)\s+(?:Prelim Time|Finals Time)\s*$"
+)
+
+# Relay result line: "1 Olympians Swimming (Can) A 3:55.01 3:53.48"
+# Exhibition: "--- Olympians Swimming (Can) B 4:03.03 X4:02.19"
+# DQ: "--- Serangoon Gardens Country Club D NT DQ"
+RE_RELAY_RESULT = re.compile(
+    r"^(\*?\d+|---)\s+"               # placement
+    r"(.+?)\s+"                        # team name
+    r"([A-Z])\s+"                      # relay letter
+    r"([\d:]+\.[\d]+|NT)\s+"           # seed time
+    r"(X?[\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)"  # time (X prefix = exhibition)
+)
+
+# Relay leg line: "1) *Uhle, Ella 17 2) r:0.07 *Thai, Kayla 17 ..."
+# Mixed relay: "1) *Chen, Yuejia W8 2) *Peng, Vincent M8 ..."
+RE_RELAY_LEG = re.compile(
+    r"(\d)\)\s+"                       # leg number
+    r"(?:r:([\d.-]+)\s+)?"             # optional reaction time
+    r"(\*?)([^,]+,\s*\S.*?)\s+"        # guest marker + name
+    r"(?:([MW])?(\d{1,2}))"            # optional gender marker + age
+)
+
 # DQ code line: "SW 7.4c Hands brought back beyond..."
 RE_DQ_CODE = re.compile(r"^(SW\s+[\d.]+[a-z]?)\s+(.+)$")
 
 # Page header line (to skip)
 RE_PAGE_HEADER = re.compile(r"HY-TEK.s MEET MANAGER")
+
+
+# ---------------------------------------------------------------------------
+# Helper: clean event name
+# ---------------------------------------------------------------------------
+
+# Strip final type suffixes from event names
+RE_FINAL_TYPE_SUFFIX = re.compile(
+    r"\s+(?:Super Final|A - Final|B - Final|C - Final)\s*$", re.IGNORECASE
+)
+
+
+def clean_event_name(event_name: str) -> str:
+    """Remove final type suffixes like 'Super Final' from event names."""
+    return RE_FINAL_TYPE_SUFFIX.sub("", event_name).strip()
+
+
+# ---------------------------------------------------------------------------
+# Helper: compute per-leg split times from relay cumulative splits
+# ---------------------------------------------------------------------------
+
+def compute_relay_leg_times(
+    splits: list[Split], num_legs: int = 4
+) -> list[Optional[str]]:
+    """
+    Given relay cumulative splits, compute each leg's total time.
+
+    For a 4x100 relay with 8 splits (2 per leg):
+      Leg 1 time = cumulative at split[1] (the 100m mark)
+      Leg 2 time = delta at split[3] (the 200m mark)
+      ...
+
+    Returns list of 4 leg time strings, or None if not computable.
+    """
+    if not splits or num_legs < 1:
+        return [None] * num_legs
+
+    splits_per_leg = len(splits) // num_legs
+    if splits_per_leg < 1:
+        return [None] * num_legs
+
+    leg_times: list[Optional[str]] = []
+    for leg_idx in range(num_legs):
+        last_split_in_leg = (leg_idx + 1) * splits_per_leg - 1
+        if last_split_in_leg >= len(splits):
+            leg_times.append(None)
+            continue
+
+        if leg_idx == 0:
+            # First leg: cumulative time at the end of their distance
+            leg_times.append(splits[last_split_in_leg].cumulative_time)
+        else:
+            # Subsequent legs: delta at the end of their distance
+            leg_times.append(splits[last_split_in_leg].split_time)
+
+    return leg_times
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +470,8 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
     unmatched_lines: list[str] = []
     current_event: Optional[ParsedEvent] = None
     current_result: Optional[ParsedResult] = None
+    current_relay: Optional[ParsedRelayResult] = None
+    in_relay_section = False  # True when we're inside a relay event
     time_type = "Prelim Time"
 
     # Map event_number -> ParsedEvent (to handle continuation pages)
@@ -388,12 +512,14 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             m = RE_EVENT_HEADER.match(line)
             if m:
                 evt_num = m.group(1)
-                evt_name = m.group(2).strip()
+                evt_name = clean_event_name(m.group(2).strip())
                 info = parse_event_name(evt_name)
 
                 # Build a key that includes age group to distinguish sub-events
                 # e.g. "101-Boys 13-14 200 LC Meter IM" vs "101-Men 15-17 200 LC Meter IM"
                 evt_key = f"{evt_num}-{evt_name}"
+
+                is_relay = "Relay" in evt_name
 
                 if evt_key not in event_map:
                     current_event = ParsedEvent(
@@ -406,12 +532,15 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         course=info["course"],
                         time_standard=None,
                         time_type="Prelim Time",
+                        is_relay=is_relay,
                     )
                     event_map[evt_key] = current_event
                     events.append(current_event)
                 else:
                     current_event = event_map[evt_key]
+                in_relay_section = is_relay
                 current_result = None
+                current_relay = None
                 continue
 
             # Continuation header
@@ -422,7 +551,9 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                 evt_key = f"{evt_num}-{evt_name}"
                 if evt_key in event_map:
                     current_event = event_map[evt_key]
+                    in_relay_section = current_event.is_relay
                 current_result = None
+                current_relay = None
                 continue
 
             # Time standard line
@@ -434,8 +565,22 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             # Column header — detect time type (round)
             m = RE_COLUMN_HEADER.match(line)
             if m:
-                # Exactly one group is non-None
                 time_type = m.group(1) or m.group(2) or m.group(3) or "Finals Time"
+                if current_event:
+                    current_event.time_type = time_type
+                in_relay_section = False
+                continue
+
+            # Relay column header
+            if RE_RELAY_COLUMN_HEADER.match(line):
+                in_relay_section = True
+                # Detect time type from the relay header
+                if "Finals Time" in line:
+                    time_type = "Finals Time"
+                elif "Prelim Time" in line and "Seed Time" not in line:
+                    time_type = "Prelim Time"
+                else:
+                    time_type = "Finals Time"
                 if current_event:
                     current_event.time_type = time_type
                 continue
@@ -444,17 +589,82 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             if RE_SECTION_MARKER.match(line):
                 continue
 
+            # Relay leg line (must check before DQ/split since it contains numbers)
+            if in_relay_section and current_relay:
+                leg_matches = RE_RELAY_LEG.findall(line)
+                if leg_matches:
+                    for lm in leg_matches:
+                        leg_num = int(lm[0])
+                        rt = lm[1] if lm[1] else None
+                        is_guest = bool(lm[2])
+                        name = lm[3].strip()
+                        gender_marker = lm[4] if lm[4] else None  # "M" or "W" for mixed
+                        age = int(lm[5]) if lm[5] else None
+                        current_relay.legs.append(ParsedRelayLeg(
+                            leg_number=leg_num,
+                            name=name,
+                            is_guest=is_guest,
+                            age=age,
+                            gender=gender_marker,
+                            reaction_time=rt,
+                        ))
+                    continue
+
+            # Relay result line
+            if in_relay_section and current_event:
+                m = RE_RELAY_RESULT.match(line)
+                if m:
+                    placement_str = m.group(1)
+                    team_name = m.group(2).strip()
+                    relay_letter = m.group(3)
+                    seed_raw = m.group(4).strip()
+                    time_raw = m.group(5).strip()
+
+                    placement = None
+                    if placement_str != "---":
+                        placement = int(placement_str.lstrip("*"))
+
+                    is_exhibition = time_raw.startswith("X")
+                    if is_exhibition:
+                        time_raw = time_raw[1:]  # strip X prefix
+
+                    is_dq = time_raw == "DQ"
+                    is_ns = time_raw in ("NS", "DNS", "DNF", "SCR")
+                    finals_time = None if (is_dq or is_ns) else time_raw
+                    seed_time = seed_raw if seed_raw != "NT" else "NT"
+
+                    current_relay = ParsedRelayResult(
+                        team_name=team_name,
+                        relay_letter=relay_letter,
+                        placement=placement,
+                        seed_time=seed_time,
+                        finals_time=finals_time,
+                        time_type=current_event.time_type,
+                        is_dq=is_dq,
+                        is_exhibition=is_exhibition,
+                    )
+                    current_event.relay_results.append(current_relay)
+                    continue
+
             # DQ code line (must check before split line)
-            if _is_dq_code_line(line) and current_result and current_result.is_dq:
+            dq_target = current_relay if (in_relay_section and current_relay and current_relay.is_dq) else (
+                current_result if (current_result and current_result.is_dq) else None
+            )
+            if _is_dq_code_line(line) and dq_target:
                 m = RE_DQ_CODE.match(line)
                 if m:
-                    current_result.dq_code = m.group(1).strip()
-                    current_result.dq_description = m.group(2).strip()
+                    dq_target.dq_code = m.group(1).strip()
+                    dq_target.dq_description = m.group(2).strip()
                 continue
 
             # Split line
             if _is_split_line(line):
-                if current_result:
+                if in_relay_section and current_relay:
+                    reaction, new_splits = parse_splits_line(line)
+                    if reaction and current_relay.reaction_time is None:
+                        current_relay.reaction_time = reaction
+                    current_relay.splits.extend(new_splits)
+                elif current_result:
                     reaction, new_splits = parse_splits_line(line)
                     if reaction and current_result.reaction_time is None:
                         current_result.reaction_time = reaction
@@ -530,16 +740,27 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
     # Post-process: assign split distances
     for event in events:
         if event.distance:
+            # Individual results
             for result in event.results:
                 if result.splits:
                     n_splits = len(result.splits)
-                    # Figure out the split interval
-                    # For most events it's 50m splits
-                    # Total splits should be distance / 50
-                    expected = event.distance // 50
                     interval = event.distance // n_splits if n_splits > 0 else 50
                     for j, sp in enumerate(result.splits):
                         sp.distance = interval * (j + 1)
+
+            # Relay results: assign distances and compute per-leg times
+            for rr in event.relay_results:
+                if rr.splits:
+                    n_splits = len(rr.splits)
+                    interval = event.distance // n_splits if n_splits > 0 else 50
+                    for j, sp in enumerate(rr.splits):
+                        sp.distance = interval * (j + 1)
+
+                    # Compute per-leg times
+                    leg_times = compute_relay_leg_times(rr.splits, num_legs=len(rr.legs) or 4)
+                    for leg, lt in zip(rr.legs, leg_times):
+                        if lt:
+                            leg.split_time = lt
 
     meet = ParsedMeet(
         meet_name=meet_name,

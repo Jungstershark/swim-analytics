@@ -30,11 +30,12 @@ from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from .database import Base, engine, get_db
-from .models import Meet, Result, Swimmer
+from .models import Meet, RelayLeg, RelayResult, Result, Swimmer
 from .parsers.base import detect_and_parse
 from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
 from .schemas import (
     ConfidenceCheck,
+    DuplicateEntry,
     EventGroup,
     MeetBrief,
     MeetDetail,
@@ -249,11 +250,16 @@ def upload_preview(file: UploadFile = File(...)):
                         qualifier=pr.qualifier,
                     ))
                 total_results += len(rows)
+                # Preview sample: first 10 + last 3 for spot-checking edge cases
+                if len(rows) > 13:
+                    sample = rows[:10] + rows[-3:]
+                else:
+                    sample = rows
                 event_groups.append(PreviewEventGroup(
                     event=ev.event_name,
                     round=round_name,
                     result_count=len(rows),
-                    results=rows,
+                    results=sample,
                 ))
     finally:
         for p in pdf_paths:
@@ -318,9 +324,10 @@ def _extract_pdfs_from_upload(file: UploadFile) -> list[Path]:
 
 def _process_parsed_meet(
     parsed, meet: Meet, swim_date: datetime, db: Session
-) -> tuple[int, int, int, list[str]]:
-    """Process parsed results into database. Returns (results_count, swimmers_created, duplicates_skipped, errors)."""
+) -> tuple[int, int, int, list[str], list[dict]]:
+    """Process parsed results into database. Returns (results_count, swimmers_created, duplicates_skipped, errors, duplicates)."""
     errors: list[str] = []
+    duplicates_list: list[dict] = []
     swimmers_created: set[str] = set()
     results_count = 0
     duplicates_skipped = 0
@@ -350,6 +357,10 @@ def _process_parsed_meet(
             existing = db.query(Result).filter(Result.contentHash == content_hash).first()
             if existing:
                 duplicates_skipped += 1
+                duplicates_list.append({
+                    "event": event.event_name, "name": pr.name,
+                    "team": pr.team, "round": round_name, "time": pr.finals_time,
+                })
                 continue
 
             result = Result(
@@ -373,7 +384,80 @@ def _process_parsed_meet(
             db.add(result)
             results_count += 1
 
-    return results_count, len(swimmers_created), duplicates_skipped, errors
+    # Process relay results
+    for event in parsed.events:
+        round_name = _time_type_to_round(event.time_type)
+
+        for rr in event.relay_results:
+            # Compute relay content hash
+            relay_hash = _compute_result_hash(
+                meet_id=meet.id, event=event.event_name,
+                swimmer_name=rr.team_name, team=rr.relay_letter,
+                round_name=round_name, time=rr.finals_time,
+            )
+
+            existing = db.query(RelayResult).filter(RelayResult.contentHash == relay_hash).first()
+            if existing:
+                duplicates_skipped += 1
+                duplicates_list.append({
+                    "event": event.event_name, "name": rr.team_name,
+                    "team": rr.relay_letter, "round": round_name, "time": rr.finals_time,
+                })
+                continue
+
+            relay_result = RelayResult(
+                meetId=meet.id,
+                event=event.event_name,
+                teamName=rr.team_name,
+                relayLetter=rr.relay_letter,
+                time=rr.finals_time,
+                seedTime=rr.seed_time,
+                placement=rr.placement,
+                isDQ=rr.is_dq,
+                dqCode=rr.dq_code,
+                dqDescription=rr.dq_description,
+                isExhibition=rr.is_exhibition,
+                round=round_name,
+                swimDate=swim_date,
+                splits=_splits_to_json(rr.splits),
+                reactionTime=rr.reaction_time,
+                contentHash=relay_hash,
+            )
+            db.add(relay_result)
+            db.flush()
+
+            # Process relay legs — find/create swimmers
+            for leg in rr.legs:
+                # For relay swimmers, team is the relay team name
+                swimmer = db.query(Swimmer).filter(
+                    Swimmer.name == leg.name,
+                    Swimmer.team == rr.team_name,
+                ).first()
+
+                if not swimmer:
+                    swimmer = Swimmer(name=leg.name, age=leg.age, team=rr.team_name)
+                    db.add(swimmer)
+                    db.flush()
+                    swimmers_created.add(leg.name)
+                elif leg.age and (swimmer.age is None or leg.age > swimmer.age):
+                    swimmer.age = leg.age
+
+                relay_leg = RelayLeg(
+                    relayResultId=relay_result.id,
+                    legNumber=leg.leg_number,
+                    swimmerId=swimmer.id,
+                    swimmerName=leg.name,
+                    age=leg.age,
+                    gender=leg.gender,
+                    isGuest=leg.is_guest,
+                    reactionTime=leg.reaction_time,
+                    splitTime=leg.split_time,
+                )
+                db.add(relay_leg)
+
+            results_count += 1
+
+    return results_count, len(swimmers_created), duplicates_skipped, errors, duplicates_list
 
 
 @app.post("/api/upload", response_model=UploadResponse)
@@ -385,6 +469,7 @@ def upload_results(
     pdf_paths = _extract_pdfs_from_upload(file)
 
     all_errors: list[str] = []
+    all_duplicates: list[dict] = []
     total_results = 0
     total_swimmers = 0
     total_duplicates = 0
@@ -447,16 +532,22 @@ def upload_results(
 
                 # If replace mode, delete all existing results for this meet
                 if replace:
+                    # Delete relay legs first (FK constraint), then relay results, then individual results
+                    relay_ids = [r.id for r in db.query(RelayResult.id).filter(RelayResult.meetId == meet.id).all()]
+                    if relay_ids:
+                        db.query(RelayLeg).filter(RelayLeg.relayResultId.in_(relay_ids)).delete(synchronize_session=False)
+                        db.query(RelayResult).filter(RelayResult.meetId == meet.id).delete()
                     deleted = db.query(Result).filter(Result.meetId == meet.id).delete()
                     all_errors.append(f"Replaced {deleted} existing results for this meet")
 
             # Process results from this PDF
-            rc, sc, dc, errs = _process_parsed_meet(parsed, meet, swim_date, db)
+            rc, sc, dc, errs, dups = _process_parsed_meet(parsed, meet, swim_date, db)
             total_results += rc
             total_swimmers += sc
             total_duplicates += dc
             total_events += len(parsed.events)
             all_errors.extend(errs)
+            all_duplicates.extend(dups)
 
         db.commit()
 
@@ -475,6 +566,11 @@ def upload_results(
         swimmers_count=total_swimmers,
         events_count=total_events,
         duplicates_skipped=total_duplicates,
+        duplicates=[
+            DuplicateEntry(event=d["event"], name=d["name"], team=d.get("team"),
+                           round=d.get("round"), time=d.get("time"))
+            for d in all_duplicates
+        ],
         errors=all_errors,
     )
 
@@ -488,10 +584,15 @@ def delete_meet(meet_id: int, db: Session = Depends(get_db)):
     meet = db.query(Meet).filter(Meet.id == meet_id).first()
     if not meet:
         raise HTTPException(status_code=404, detail="Meet not found")
+    # Delete relay legs first (FK), then relay results, then individual results
+    relay_ids = [r.id for r in db.query(RelayResult.id).filter(RelayResult.meetId == meet_id).all()]
+    if relay_ids:
+        db.query(RelayLeg).filter(RelayLeg.relayResultId.in_(relay_ids)).delete(synchronize_session=False)
+    relays_deleted = db.query(RelayResult).filter(RelayResult.meetId == meet_id).delete()
     results_deleted = db.query(Result).filter(Result.meetId == meet_id).delete()
     db.delete(meet)
     db.commit()
-    return {"success": True, "results_deleted": results_deleted}
+    return {"success": True, "results_deleted": results_deleted, "relays_deleted": relays_deleted}
 
 
 # ---------------------------------------------------------------------------

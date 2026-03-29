@@ -189,6 +189,14 @@ class UploadPreviewResponse(BaseModel):
     events: list[PreviewEventGroup]
 
 
+class DuplicateEntry(BaseModel):
+    event: str
+    name: str
+    team: Optional[str] = None
+    round: Optional[str] = None
+    time: Optional[str] = None
+
+
 class UploadResponse(BaseModel):
     success: bool
     meet: MeetBrief
@@ -196,6 +204,7 @@ class UploadResponse(BaseModel):
     swimmers_count: int
     events_count: int
     duplicates_skipped: int = 0
+    duplicates: list[DuplicateEntry] = []
     errors: list[str] = []
 
 

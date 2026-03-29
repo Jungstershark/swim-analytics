@@ -9,6 +9,10 @@ const nextConfig = {
       },
     ];
   },
+  // Increase proxy timeout for large ZIP uploads (default 30s is too short)
+  experimental: {
+    proxyTimeout: 120000,
+  },
 };
 
 module.exports = nextConfig;

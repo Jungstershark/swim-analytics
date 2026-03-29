@@ -140,6 +140,14 @@ export interface UploadPreviewResponse {
   events: PreviewEventGroup[];
 }
 
+export interface DuplicateEntry {
+  event: string;
+  name: string;
+  team: string | null;
+  round: string | null;
+  time: string | null;
+}
+
 export interface UploadResponse {
   success: boolean;
   meet: MeetBrief;
@@ -147,6 +155,7 @@ export interface UploadResponse {
   swimmers_count: number;
   events_count: number;
   duplicates_skipped: number;
+  duplicates: DuplicateEntry[];
   errors: string[];
 }
 
