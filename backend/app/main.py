@@ -840,7 +840,7 @@ def get_swimmer(swimmer_id: int, db: Session = Depends(get_db)):
             time=r.time,
             time_in_seconds=secs,
             meet=r.meet.name,
-            date=r.meet.startDate.strftime("%Y-%m-%d"),
+            date=(r.swimDate or r.meet.startDate).strftime("%Y-%m-%d"),
         ))
 
     # Recent results (last 20)
@@ -1110,7 +1110,7 @@ def get_progression(
         if secs is None:
             continue
         data_points.append(ProgressionDataPoint(
-            date=r.meet.startDate.strftime("%Y-%m-%d"),
+            date=(r.swimDate or r.meet.startDate).strftime("%Y-%m-%d"),
             time=r.time,
             time_in_seconds=secs,
             meet=r.meet.name,
