@@ -99,6 +99,7 @@ class MeetDetail(MeetBrief):
 # ---------------------------------------------------------------------------
 
 class ResultBase(BaseModel):
+    """Slim result — used in list views (no splits/reaction_time to keep payloads small)."""
     event: str
     time: Optional[str] = None
     seed_time: Optional[str] = None
@@ -108,8 +109,6 @@ class ResultBase(BaseModel):
     dq_description: Optional[str] = None
     is_guest: bool = False
     qualifier: Optional[str] = None
-    reaction_time: Optional[str] = None
-    splits: Optional[str] = None
     round: Optional[str] = None
     swim_date: Optional[datetime] = None
 
@@ -130,6 +129,16 @@ class ResultListItem(ResultBase):
 class ResultListResponse(BaseModel):
     data: list[ResultListItem]
     pagination: PaginationInfo
+
+
+class ResultDetail(ResultBase):
+    """Full result — includes splits and reaction time, fetched on demand."""
+    id: int
+    reaction_time: Optional[str] = None
+    splits: Optional[str] = None
+    swimmer: SwimmerBrief
+    meet: MeetBrief
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------

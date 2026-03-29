@@ -84,14 +84,18 @@ export interface ResultBrief {
   dq_description: string | null;
   is_guest: boolean;
   qualifier: string | null;
-  reaction_time: string | null;
-  splits: string | null;
   round: string | null;
   swim_date: string | null;
   swimmer: SwimmerBrief;
 }
 
 export interface ResultListItem extends ResultBrief {
+  meet: MeetBrief;
+}
+
+export interface ResultDetail extends ResultBrief {
+  reaction_time: string | null;
+  splits: string | null;
   meet: MeetBrief;
 }
 
@@ -247,6 +251,10 @@ export async function listResults(
   if (params.sort) q.set("sort", params.sort);
   if (params.order) q.set("order", params.order);
   return apiFetch(`/results?${q}`);
+}
+
+export async function getResult(id: number): Promise<ResultDetail> {
+  return apiFetch(`/results/${id}`);
 }
 
 // ---------------------------------------------------------------------------

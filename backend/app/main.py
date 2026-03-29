@@ -43,6 +43,7 @@ from .schemas import (
     ProgressionDataPoint,
     ProgressionResponse,
     ResultBrief,
+    ResultDetail,
     ResultListItem,
     ResultListResponse,
     SwimmerBrief,
@@ -120,7 +121,16 @@ def _compute_result_hash(
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _swimmer_brief(s: Swimmer) -> SwimmerBrief:
+    return SwimmerBrief(id=s.id, name=s.name, age=s.age, team=s.team)
+
+
+def _meet_brief(m: Meet) -> MeetBrief:
+    return MeetBrief(id=m.id, name=m.name, date=m.startDate, location=m.location)
+
+
 def _result_to_list_item(r: Result) -> ResultListItem:
+    """Slim result for list views — no splits or reaction_time."""
     return ResultListItem(
         id=r.id,
         event=r.event,
@@ -132,17 +142,35 @@ def _result_to_list_item(r: Result) -> ResultListItem:
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
         qualifier=r.qualifier,
-        reaction_time=r.reactionTime,
-        splits=r.splits,
         round=r.round,
         swim_date=r.swimDate,
-        swimmer=SwimmerBrief(id=r.swimmer.id, name=r.swimmer.name, age=r.swimmer.age, team=r.swimmer.team),
-        meet=MeetBrief(id=r.meet.id, name=r.meet.name, date=r.meet.startDate, location=r.meet.location),
+        swimmer=_swimmer_brief(r.swimmer),
+        meet=_meet_brief(r.meet),
     )
 
 
 def _result_to_brief(r: Result) -> ResultBrief:
+    """Slim result for embedded views — no splits or reaction_time."""
     return ResultBrief(
+        id=r.id,
+        event=r.event,
+        time=r.time,
+        seed_time=r.seedTime,
+        placement=r.placement,
+        is_dq=r.isDQ,
+        dq_code=r.dqCode,
+        dq_description=r.dqDescription,
+        is_guest=r.isGuest,
+        qualifier=r.qualifier,
+        round=r.round,
+        swim_date=r.swimDate,
+        swimmer=_swimmer_brief(r.swimmer),
+    )
+
+
+def _result_to_detail(r: Result) -> ResultDetail:
+    """Full result with splits and reaction time."""
+    return ResultDetail(
         id=r.id,
         event=r.event,
         time=r.time,
@@ -157,7 +185,8 @@ def _result_to_brief(r: Result) -> ResultBrief:
         splits=r.splits,
         round=r.round,
         swim_date=r.swimDate,
-        swimmer=SwimmerBrief(id=r.swimmer.id, name=r.swimmer.name, age=r.swimmer.age, team=r.swimmer.team),
+        swimmer=_swimmer_brief(r.swimmer),
+        meet=_meet_brief(r.meet),
     )
 
 
@@ -339,7 +368,7 @@ def upload_results(
 
     return UploadResponse(
         success=True,
-        meet=MeetBrief(id=meet.id, name=meet.name, date=meet.startDate, location=meet.location),
+        meet=_meet_brief(meet),
         results_count=total_results,
         swimmers_count=total_swimmers,
         events_count=total_events,
@@ -606,6 +635,20 @@ def list_results(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/results/{id} — single result with splits
+# ---------------------------------------------------------------------------
+
+@app.get("/api/results/{result_id}", response_model=ResultDetail)
+def get_result(result_id: int, db: Session = Depends(get_db)):
+    r = db.query(Result).options(
+        joinedload(Result.swimmer), joinedload(Result.meet)
+    ).filter(Result.id == result_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Result not found")
+    return _result_to_detail(r)
+
+
+# ---------------------------------------------------------------------------
 # GET /api/analytics/progression
 # ---------------------------------------------------------------------------
 
@@ -659,7 +702,7 @@ def get_progression(
             summary["improvement_percent"] = round(improvement / first_time * 100, 2)
 
     return ProgressionResponse(
-        swimmer=SwimmerBrief(id=swimmer.id, name=swimmer.name, age=swimmer.age, team=swimmer.team),
+        swimmer=_swimmer_brief(swimmer),
         event=event,
         data_points=data_points,
         summary=summary,

@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   listResults,
   listMeets,
+  getResult,
   type ResultListItem,
+  type ResultDetail,
   type PaginationInfo,
   type MeetListItem,
 } from "@/lib/api";
@@ -16,6 +18,26 @@ export default function ResultsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [splitsCache, setSplitsCache] = useState<Record<number, ResultDetail>>({});
+  const [loadingSplits, setLoadingSplits] = useState(false);
+
+  async function handleToggleSplits(resultId: number) {
+    if (expandedRow === resultId) {
+      setExpandedRow(null);
+      return;
+    }
+    setExpandedRow(resultId);
+    if (splitsCache[resultId]) return; // already cached
+    setLoadingSplits(true);
+    try {
+      const detail = await getResult(resultId);
+      setSplitsCache((prev) => ({ ...prev, [resultId]: detail }));
+    } catch {
+      // leave uncached so it retries on next click
+    } finally {
+      setLoadingSplits(false);
+    }
+  }
 
   // Filters
   const [search, setSearch] = useState("");
@@ -290,17 +312,11 @@ export default function ResultsPage() {
                         </tr>
                       ))
                     : results.map((result, index) => {
-                        const hasSplits = result.splits && result.splits !== "[]";
                         const isExpanded = expandedRow === result.id;
-                        let parsedSplits: { cumulative: string; split: string | null; distance: number }[] = [];
-                        if (hasSplits) {
-                          try { parsedSplits = JSON.parse(result.splits!); } catch {}
-                        }
 
                         return (
-                          <>
+                          <React.Fragment key={result.id}>
                             <tr
-                              key={result.id}
                               className={`
                                 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}
                                 ${result.is_dq ? "bg-red-50/60" : ""}
@@ -318,8 +334,8 @@ export default function ResultsPage() {
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center gap-1.5">
                                   {result.is_guest && (
-                                    <span className="text-xs text-amber-600 bg-amber-50 px-1 py-0.5 rounded font-medium" title="Guest/Foreign swimmer">
-                                      G
+                                    <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-medium" title="Guest — foreign/visiting swimmer, not eligible for local placement">
+                                      Guest
                                     </span>
                                   )}
                                   <a
@@ -413,48 +429,55 @@ export default function ResultsPage() {
 
                               {/* Splits toggle */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
-                                {hasSplits ? (
-                                  <button
-                                    onClick={() => setExpandedRow(isExpanded ? null : result.id)}
-                                    className="text-ssa-teal hover:text-ssa-navy transition-colors"
-                                    title="View splits"
-                                  >
-                                    <svg className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                    </svg>
-                                  </button>
-                                ) : (
-                                  <span className="text-gray-300">-</span>
-                                )}
+                                <button
+                                  onClick={() => handleToggleSplits(result.id)}
+                                  className="text-ssa-teal hover:text-ssa-navy transition-colors"
+                                  title="View splits"
+                                >
+                                  <svg className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                  </svg>
+                                </button>
                               </td>
                             </tr>
 
                             {/* Expanded splits row */}
-                            {isExpanded && hasSplits && (
+                            {isExpanded && (
                               <tr key={`${result.id}-splits`} className="bg-ssa-navy/5">
                                 <td colSpan={9} className="px-6 py-3">
-                                  <div className="flex flex-wrap gap-2 items-center">
-                                    <span className="text-xs font-semibold text-ssa-navy uppercase mr-2">Splits:</span>
-                                    {parsedSplits.map((s, i) => (
-                                      <div key={i} className="text-center bg-white rounded px-2 py-1 border border-gray-200">
-                                        <div className="text-[10px] text-gray-400">{s.distance}m</div>
-                                        <div className="text-xs font-mono font-semibold text-ssa-navy">{s.cumulative}</div>
-                                        {s.split && (
-                                          <div className="text-[10px] font-mono text-gray-500">({s.split})</div>
-                                        )}
-                                      </div>
-                                    ))}
-                                    {result.reaction_time && (
-                                      <div className="text-center bg-white rounded px-2 py-1 border border-gray-200 ml-2">
-                                        <div className="text-[10px] text-gray-400">RT</div>
-                                        <div className="text-xs font-mono font-semibold text-gray-600">{result.reaction_time}</div>
-                                      </div>
-                                    )}
-                                  </div>
+                                  {loadingSplits ? (
+                                    <div className="text-xs text-gray-400 animate-pulse">Loading splits...</div>
+                                  ) : splitsCache[result.id]?.splits ? (
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                      <span className="text-xs font-semibold text-ssa-navy uppercase mr-2">Splits:</span>
+                                      {(() => {
+                                        try {
+                                          const splits: { cumulative: string; split: string | null; distance: number }[] = JSON.parse(splitsCache[result.id].splits!);
+                                          return splits.map((s, i) => (
+                                            <div key={i} className="text-center bg-white rounded px-2 py-1 border border-gray-200">
+                                              <div className="text-[10px] text-gray-400">{s.distance}m</div>
+                                              <div className="text-xs font-mono font-semibold text-ssa-navy">{s.cumulative}</div>
+                                              {s.split && (
+                                                <div className="text-[10px] font-mono text-gray-500">({s.split})</div>
+                                              )}
+                                            </div>
+                                          ));
+                                        } catch { return null; }
+                                      })()}
+                                      {splitsCache[result.id].reaction_time && (
+                                        <div className="text-center bg-white rounded px-2 py-1 border border-gray-200 ml-2">
+                                          <div className="text-[10px] text-gray-400">RT</div>
+                                          <div className="text-xs font-mono font-semibold text-gray-600">{splitsCache[result.id].reaction_time}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-gray-400">No split data available</div>
+                                  )}
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </React.Fragment>
                         );
                       })}
                 </tbody>
