@@ -99,6 +99,40 @@ export interface ResultDetail extends ResultBrief {
   meet: MeetBrief;
 }
 
+export interface PreviewResultRow {
+  event: string;
+  name: string;
+  age: number | null;
+  team: string;
+  time: string | null;
+  seed_time: string | null;
+  round: string;
+  placement: number | null;
+  is_dq: boolean;
+  is_guest: boolean;
+  qualifier: string | null;
+}
+
+export interface ConfidenceCheck {
+  name: string;
+  passed: boolean;
+}
+
+export interface UploadPreviewResponse {
+  parser_format: string;
+  confidence_score: number;
+  confidence_passed: boolean;
+  confidence_checks: ConfidenceCheck[];
+  unmatched_lines: string[];
+  meet_name: string;
+  meet_dates: string | null;
+  session: string | null;
+  events_count: number;
+  results_count: number;
+  swimmers_count: number;
+  sample_results: PreviewResultRow[];
+}
+
 export interface UploadResponse {
   success: boolean;
   meet: MeetBrief;
@@ -260,6 +294,12 @@ export async function getResult(id: number): Promise<ResultDetail> {
 // ---------------------------------------------------------------------------
 // Upload
 // ---------------------------------------------------------------------------
+
+export async function previewUpload(file: File): Promise<UploadPreviewResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch("/upload/preview", { method: "POST", body: formData });
+}
 
 export async function uploadResults(
   file: File,

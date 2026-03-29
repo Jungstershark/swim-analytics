@@ -1,32 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { uploadResults, type UploadResponse } from "@/lib/api";
+import {
+  previewUpload,
+  uploadResults,
+  type UploadPreviewResponse,
+  type UploadResponse,
+} from "@/lib/api";
+
+type Step = "select" | "preview" | "uploading" | "done";
 
 export default function UploadPage() {
-  const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<UploadResponse | null>(null);
+  const [step, setStep] = useState<Step>("select");
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [replaceMode, setReplaceMode] = useState(false);
-
-  async function handleUpload() {
-    if (!selectedFile) return;
-    setUploading(true);
-    setResult(null);
-    setError("");
-
-    try {
-      const res = await uploadResults(selectedFile, { replace: replaceMode });
-      setResult(res);
-      setSelectedFile(null);
-    } catch (e: any) {
-      setError(e.message || "Failed to upload file. Please try again.");
-    } finally {
-      setUploading(false);
-    }
-  }
+  const [preview, setPreview] = useState<UploadPreviewResponse | null>(null);
+  const [result, setResult] = useState<UploadResponse | null>(null);
+  const [loading, setLoading] = useState(false);
 
   function handleFileSelect(file: File | null) {
     if (file) {
@@ -37,26 +29,64 @@ export default function UploadPage() {
       }
     }
     setError("");
+    setPreview(null);
     setResult(null);
     setSelectedFile(file);
+    setStep("select");
+  }
+
+  async function handlePreview() {
+    if (!selectedFile) return;
+    setLoading(true);
+    setError("");
+    setPreview(null);
+    try {
+      const res = await previewUpload(selectedFile);
+      setPreview(res);
+      setStep("preview");
+    } catch (e: any) {
+      setError(e.message || "Failed to parse file");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleConfirm() {
+    if (!selectedFile) return;
+    setStep("uploading");
+    setError("");
+    try {
+      const res = await uploadResults(selectedFile, { replace: replaceMode });
+      setResult(res);
+      setStep("done");
+      setSelectedFile(null);
+    } catch (e: any) {
+      setError(e.message || "Failed to upload");
+      setStep("preview");
+    }
+  }
+
+  function handleReset() {
+    setStep("select");
+    setSelectedFile(null);
+    setPreview(null);
+    setResult(null);
+    setError("");
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    handleFileSelect(file || null);
+    handleFileSelect(e.dataTransfer.files[0] || null);
   }
 
   return (
     <div className="min-h-screen">
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <nav className="flex items-center gap-2 text-sm mb-4">
-            <a href="/" className="text-gray-500 hover:text-ssa-navy transition-colors">
-              Dashboard
-            </a>
+            <a href="/" className="text-gray-500 hover:text-ssa-navy transition-colors">Dashboard</a>
             <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
@@ -69,148 +99,333 @@ export default function UploadPage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Drop zone */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          onClick={() => document.getElementById("file-input")?.click()}
-          className={`card p-10 text-center cursor-pointer transition-all duration-200 ${
-            dragOver
-              ? "border-ssa-teal border-2 bg-ssa-teal/5 shadow-lg"
-              : selectedFile
-              ? "border-ssa-teal border-2 bg-ssa-teal/5"
-              : "border-dashed border-2 border-gray-300 hover:border-ssa-teal hover:bg-gray-50"
-          }`}
-        >
-          <input
-            id="file-input"
-            type="file"
-            accept=".pdf,.zip"
-            className="hidden"
-            onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
-          />
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-          {selectedFile ? (
-            <div>
-              <div className="w-14 h-14 mx-auto mb-4 bg-ssa-teal/10 rounded-xl flex items-center justify-center">
-                <svg className="w-7 h-7 text-ssa-teal" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 mb-6 text-sm">
+          {["Select File", "Preview", "Confirm"].map((label, i) => {
+            const stepIndex = { select: 0, preview: 1, uploading: 2, done: 2 }[step];
+            const isActive = i <= stepIndex;
+            return (
+              <div key={label} className="flex items-center gap-2">
+                {i > 0 && <div className={`w-8 h-px ${isActive ? "bg-ssa-teal" : "bg-gray-200"}`} />}
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  isActive ? "bg-ssa-teal text-white" : "bg-gray-100 text-gray-400"
+                }`}>
+                  {label}
+                </span>
               </div>
-              <p className="text-sm font-semibold text-ssa-navy">{selectedFile.name}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {(selectedFile.size / 1024).toFixed(0)} KB &middot; Click to change
-              </p>
-            </div>
-          ) : (
-            <div>
-              <div className="w-14 h-14 mx-auto mb-4 bg-gray-100 rounded-xl flex items-center justify-center">
-                <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-gray-700">
-                Drop your file here, or click to browse
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                HY-TEK Meet Manager results (.pdf) or ZIP with multiple PDFs
-              </p>
-            </div>
-          )}
+            );
+          })}
         </div>
 
-        {/* Replace toggle */}
-        <label className="flex items-center gap-3 mt-4 px-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={replaceMode}
-            onChange={(e) => setReplaceMode(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-ssa-teal focus:ring-ssa-teal"
-          />
-          <div>
-            <span className="text-sm font-medium text-gray-700">Replace existing results</span>
-            <p className="text-xs text-gray-400">
-              Deletes all previous results for this meet before importing. Use when re-uploading corrected files.
-            </p>
-          </div>
-        </label>
-
-        {/* Upload button */}
-        <button
-          onClick={handleUpload}
-          disabled={!selectedFile || uploading}
-          className={`w-full mt-4 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
-            !selectedFile || uploading
-              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-              : "btn-primary justify-center"
-          }`}
-        >
-          {uploading ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              {selectedFile?.name.endsWith(".zip") ? "Extracting & Parsing..." : "Parsing PDF..."}
-            </span>
-          ) : (
-            `Upload & Parse${replaceMode ? " (Replace)" : ""}`
-          )}
-        </button>
-
-        {/* Success */}
-        {result && (
-          <div className="card mt-6 overflow-hidden">
-            <div className="bg-ssa-teal/10 px-6 py-4 border-b border-ssa-teal/20">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-ssa-teal" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h3 className="font-semibold text-ssa-navy">Upload Successful</h3>
-              </div>
-            </div>
-            <div className="px-6 py-4 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Meet</span>
-                <span className="font-medium text-gray-900">{result.meet.name}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Events Parsed</span>
-                <span className="font-medium text-gray-900">{result.events_count}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Results Stored</span>
-                <span className="font-medium text-gray-900">{result.results_count.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">New Swimmers</span>
-                <span className="font-medium text-gray-900">{result.swimmers_count}</span>
-              </div>
-              {result.duplicates_skipped > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Duplicates Skipped</span>
-                  <span className="font-medium text-amber-600">{result.duplicates_skipped}</span>
+        {/* ============ STEP 1: SELECT FILE ============ */}
+        {(step === "select" || step === "preview") && (
+          <div className="max-w-2xl">
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById("file-input")?.click()}
+              className={`card p-10 text-center cursor-pointer transition-all duration-200 ${
+                dragOver
+                  ? "border-ssa-teal border-2 bg-ssa-teal/5 shadow-lg"
+                  : selectedFile
+                  ? "border-ssa-teal border-2 bg-ssa-teal/5"
+                  : "border-dashed border-2 border-gray-300 hover:border-ssa-teal hover:bg-gray-50"
+              }`}
+            >
+              <input
+                id="file-input"
+                type="file"
+                accept=".pdf,.zip"
+                className="hidden"
+                onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+              />
+              {selectedFile ? (
+                <div>
+                  <div className="w-14 h-14 mx-auto mb-4 bg-ssa-teal/10 rounded-xl flex items-center justify-center">
+                    <svg className="w-7 h-7 text-ssa-teal" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-semibold text-ssa-navy">{selectedFile.name}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(selectedFile.size / 1024).toFixed(0)} KB &middot; Click to change
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <div className="w-14 h-14 mx-auto mb-4 bg-gray-100 rounded-xl flex items-center justify-center">
+                    <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-gray-700">Drop your file here, or click to browse</p>
+                  <p className="text-xs text-gray-400 mt-1">HY-TEK Meet Manager results (.pdf) or ZIP with multiple PDFs</p>
                 </div>
               )}
-              {result.results_count === 0 && (
-                <p className="text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
-                  No new results were added. This file may have already been uploaded.
-                </p>
-              )}
             </div>
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-              <a href="/results" className="text-sm font-medium text-ssa-teal hover:text-ssa-teal-dark transition-colors">
-                View results &rarr;
-              </a>
+
+            {step === "select" && (
+              <button
+                onClick={handlePreview}
+                disabled={!selectedFile || loading}
+                className={`w-full mt-4 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
+                  !selectedFile || loading
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "btn-primary justify-center"
+                }`}
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Analyzing...
+                  </span>
+                ) : (
+                  "Preview & Validate"
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ============ STEP 2: PREVIEW ============ */}
+        {step === "preview" && preview && (
+          <div className="mt-6 space-y-6">
+            {/* Confidence Report */}
+            <div className="card overflow-hidden">
+              <div className={`px-6 py-4 border-b ${
+                preview.confidence_passed
+                  ? "bg-ssa-teal/10 border-ssa-teal/20"
+                  : "bg-red-50 border-red-200"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {preview.confidence_passed ? (
+                      <svg className="w-5 h-5 text-ssa-teal" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                      </svg>
+                    )}
+                    <h3 className="font-semibold text-ssa-navy">
+                      Parse Validation — {Math.round(preview.confidence_score * 100)}%
+                    </h3>
+                  </div>
+                  <span className="text-xs text-gray-500">Parser: {preview.parser_format}</span>
+                </div>
+              </div>
+              <div className="px-6 py-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  {preview.confidence_checks.map((check) => (
+                    <div key={check.name} className="flex items-center gap-2">
+                      <span className={check.passed ? "text-ssa-teal" : "text-red-500"}>
+                        {check.passed ? "✓" : "✗"}
+                      </span>
+                      <span className="text-xs text-gray-600">
+                        {check.name.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {preview.unmatched_lines.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                      {preview.unmatched_lines.length} unmatched lines (click to view)
+                    </summary>
+                    <div className="mt-2 bg-gray-50 rounded p-3 max-h-32 overflow-y-auto">
+                      {preview.unmatched_lines.map((line, i) => (
+                        <div key={i} className="text-xs font-mono text-gray-500 truncate">{line}</div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+
+            {/* Summary stats */}
+            <div className="card p-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                <div>
+                  <div className="text-xs text-gray-400 uppercase">Meet</div>
+                  <div className="text-sm font-semibold text-ssa-navy mt-1">{preview.meet_name}</div>
+                  {preview.meet_dates && (
+                    <div className="text-xs text-gray-400 mt-0.5">{preview.meet_dates}</div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 uppercase">Events</div>
+                  <div className="text-2xl font-bold text-ssa-navy mt-1">{preview.events_count}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 uppercase">Results</div>
+                  <div className="text-2xl font-bold text-ssa-navy mt-1">{preview.results_count.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 uppercase">Swimmers</div>
+                  <div className="text-2xl font-bold text-ssa-navy mt-1">{preview.swimmers_count.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sample results table */}
+            <div className="card overflow-hidden">
+              <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+                <h3 className="text-sm font-semibold text-ssa-navy">
+                  Sample Results (first {preview.sample_results.length} of {preview.results_count.toLocaleString()})
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-ssa-navy">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase">Event</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase">Swimmer</th>
+                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-12">Age</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-300 uppercase hidden md:table-cell">Club</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-300 uppercase w-24">Time</th>
+                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-20">Round</th>
+                      <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-300 uppercase w-16">Place</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {preview.sample_results.map((r, i) => (
+                      <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50/50"} ${r.is_dq ? "bg-red-50/60" : ""}`}>
+                        <td className="px-4 py-2 text-sm text-gray-700">{r.event}</td>
+                        <td className="px-4 py-2 text-sm font-semibold text-gray-900">
+                          {r.is_guest && (
+                            <span className="text-xs text-amber-600 bg-amber-50 px-1 py-0.5 rounded mr-1">Guest</span>
+                          )}
+                          {r.name}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-gray-600 text-center">{r.age ?? "-"}</td>
+                        <td className="px-4 py-2 text-sm text-gray-500 hidden md:table-cell">{r.team}</td>
+                        <td className="px-4 py-2 text-right">
+                          {r.is_dq ? (
+                            <span className="text-xs font-semibold text-red-600">DQ</span>
+                          ) : (
+                            <span className="text-sm font-mono font-bold text-ssa-navy">{r.time || "--"}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                            r.round === "Final" ? "bg-ssa-navy/10 text-ssa-navy" : "bg-gray-100 text-gray-500"
+                          }`}>
+                            {r.round}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-sm text-gray-500 text-center">{r.placement ?? "--"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Replace toggle + Confirm button */}
+            <div className="max-w-2xl">
+              <label className="flex items-center gap-3 px-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={replaceMode}
+                  onChange={(e) => setReplaceMode(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-ssa-teal focus:ring-ssa-teal"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Replace existing results</span>
+                  <p className="text-xs text-gray-400">
+                    Deletes all previous results for this meet before importing.
+                  </p>
+                </div>
+              </label>
+
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={handleReset}
+                  className="px-6 py-3 rounded-lg font-medium text-sm border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirm}
+                  disabled={!preview.confidence_passed}
+                  className={`flex-1 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
+                    !preview.confidence_passed
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "btn-primary justify-center"
+                  }`}
+                >
+                  Confirm Upload — {preview.results_count.toLocaleString()} results
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============ UPLOADING STATE ============ */}
+        {step === "uploading" && (
+          <div className="max-w-2xl mt-6 card p-8 text-center">
+            <svg className="animate-spin w-8 h-8 mx-auto text-ssa-teal" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-sm font-medium text-ssa-navy mt-4">Uploading and saving to database...</p>
+          </div>
+        )}
+
+        {/* ============ STEP 3: DONE ============ */}
+        {step === "done" && result && (
+          <div className="max-w-2xl mt-6 space-y-4">
+            <div className="card overflow-hidden">
+              <div className="bg-ssa-teal/10 px-6 py-4 border-b border-ssa-teal/20">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-ssa-teal" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h3 className="font-semibold text-ssa-navy">Upload Successful</h3>
+                </div>
+              </div>
+              <div className="px-6 py-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Meet</span>
+                  <span className="font-medium text-gray-900">{result.meet.name}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Results Stored</span>
+                  <span className="font-medium text-gray-900">{result.results_count.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">New Swimmers</span>
+                  <span className="font-medium text-gray-900">{result.swimmers_count}</span>
+                </div>
+                {result.duplicates_skipped > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Duplicates Skipped</span>
+                    <span className="font-medium text-amber-600">{result.duplicates_skipped}</span>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-4">
+                <a href="/results" className="text-sm font-medium text-ssa-teal hover:text-ssa-navy transition-colors">
+                  View results &rarr;
+                </a>
+                <button onClick={handleReset} className="text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors">
+                  Upload another
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div className="card mt-6 p-4 bg-red-50 border-red-200">
+          <div className="max-w-2xl card mt-6 p-4 bg-red-50 border-red-200">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -224,27 +439,6 @@ export default function UploadPage() {
             </div>
           </div>
         )}
-
-        {/* Info box */}
-        <div className="card mt-8 p-5">
-          <h2 className="text-sm font-semibold text-ssa-navy mb-3">
-            Supported Formats
-          </h2>
-          <div className="space-y-2 text-sm text-gray-600">
-            <p>
-              <strong>PDF:</strong> HY-TEK Meet Manager 8.0 result exports with event results,
-              swimmer names, times, placements, splits, and DQ information.
-            </p>
-            <p>
-              <strong>ZIP:</strong> A zip file containing multiple PDF result files from the same competition
-              (e.g., Day 1 Session 1, Day 1 Session 2, etc.). All PDFs are parsed and grouped under one meet.
-            </p>
-            <p className="text-xs text-gray-400">
-              Duplicate results are automatically detected and skipped. Toggle &quot;Replace existing results&quot;
-              to re-import corrected files.
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   );

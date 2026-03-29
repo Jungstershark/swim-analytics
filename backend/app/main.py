@@ -34,6 +34,7 @@ from .models import Meet, Result, Swimmer
 from .parsers.base import detect_and_parse
 from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
 from .schemas import (
+    ConfidenceCheck,
     EventGroup,
     MeetBrief,
     MeetDetail,
@@ -41,6 +42,7 @@ from .schemas import (
     MeetListResponse,
     PaginationInfo,
     PersonalBest,
+    PreviewResultRow,
     ProgressionDataPoint,
     ProgressionResponse,
     ResultBrief,
@@ -51,6 +53,7 @@ from .schemas import (
     SwimmerDetail,
     SwimmerListItem,
     SwimmerListResponse,
+    UploadPreviewResponse,
     UploadResponse,
 )
 
@@ -188,6 +191,84 @@ def _result_to_detail(r: Result) -> ResultDetail:
         swim_date=r.swimDate,
         swimmer=_swimmer_brief(r.swimmer),
         meet=_meet_brief(r.meet),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/upload/preview
+# ---------------------------------------------------------------------------
+
+@app.post("/api/upload/preview", response_model=UploadPreviewResponse)
+def upload_preview(file: UploadFile = File(...)):
+    """Parse PDF/ZIP and return preview without inserting to DB."""
+    pdf_paths = _extract_pdfs_from_upload(file)
+
+    all_results: list[PreviewResultRow] = []
+    all_events = 0
+    all_swimmers: set[str] = set()
+    meet_name = ""
+    meet_dates = None
+    session_label = None
+    parser_format = "unknown"
+    last_confidence = None
+
+    try:
+        for pdf_path in pdf_paths:
+            try:
+                parsed, confidence, fmt = detect_and_parse(pdf_path)
+                parser_format = fmt
+                last_confidence = confidence
+            except Exception:
+                continue
+            finally:
+                pdf_path.unlink(missing_ok=True)
+
+            if not meet_name:
+                meet_name = parsed.meet_name
+                meet_dates = parsed.meet_dates
+            if not session_label:
+                session_label = parsed.session
+
+            all_events += len(parsed.events)
+            for ev in parsed.events:
+                round_name = _time_type_to_round(ev.time_type)
+                for pr in ev.results:
+                    all_swimmers.add(pr.name)
+                    all_results.append(PreviewResultRow(
+                        event=ev.event_name,
+                        name=pr.name,
+                        age=pr.age,
+                        team=pr.team,
+                        time=pr.finals_time,
+                        seed_time=pr.seed_time,
+                        round=round_name,
+                        placement=pr.placement,
+                        is_dq=pr.is_dq,
+                        is_guest=pr.is_guest,
+                        qualifier=pr.qualifier,
+                    ))
+    finally:
+        for p in pdf_paths:
+            p.unlink(missing_ok=True)
+
+    if last_confidence is None:
+        raise HTTPException(status_code=422, detail="No valid PDFs could be parsed")
+
+    return UploadPreviewResponse(
+        parser_format=parser_format,
+        confidence_score=last_confidence.score,
+        confidence_passed=last_confidence.passed,
+        confidence_checks=[
+            ConfidenceCheck(name=k, passed=v) for k, v in last_confidence.checks.items()
+        ],
+        unmatched_lines=last_confidence.unmatched_lines,
+        meet_name=meet_name,
+        meet_dates=meet_dates,
+        session=session_label,
+        events_count=all_events,
+        results_count=len(all_results),
+        swimmers_count=len(all_swimmers),
+        sample_results=all_results[:50],
     )
 
 

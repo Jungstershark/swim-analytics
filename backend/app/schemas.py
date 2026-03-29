@@ -145,6 +145,42 @@ class ResultDetail(ResultBase):
 # Upload
 # ---------------------------------------------------------------------------
 
+class PreviewResultRow(BaseModel):
+    """A single result row in the upload preview."""
+    event: str
+    name: str
+    age: Optional[int] = None
+    team: str
+    time: Optional[str] = None
+    seed_time: Optional[str] = None
+    round: str
+    placement: Optional[int] = None
+    is_dq: bool = False
+    is_guest: bool = False
+    qualifier: Optional[str] = None
+
+
+class ConfidenceCheck(BaseModel):
+    name: str
+    passed: bool
+
+
+class UploadPreviewResponse(BaseModel):
+    """Response from /api/upload/preview — parsed data without DB insertion."""
+    parser_format: str
+    confidence_score: float
+    confidence_passed: bool
+    confidence_checks: list[ConfidenceCheck]
+    unmatched_lines: list[str]
+    meet_name: str
+    meet_dates: Optional[str] = None
+    session: Optional[str] = None
+    events_count: int
+    results_count: int
+    swimmers_count: int
+    sample_results: list[PreviewResultRow]
+
+
 class UploadResponse(BaseModel):
     success: bool
     meet: MeetBrief
