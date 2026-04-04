@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   previewUpload,
   uploadResults,
+  displayName,
   type UploadPreviewResponse,
   type UploadResponse,
 } from "@/lib/api";
@@ -385,7 +386,7 @@ export default function UploadPage() {
                                       {r.is_guest && (
                                         <span className="text-xs text-amber-600 bg-amber-50 px-1 py-0.5 rounded mr-1">Guest</span>
                                       )}
-                                      {r.name}
+                                      {displayName(r.name)}
                                     </td>
                                     <td className="px-4 py-2 text-sm text-gray-600 text-center">{r.age ?? "-"}</td>
                                     <td className="px-4 py-2 text-sm text-gray-500 hidden md:table-cell">{r.team}</td>

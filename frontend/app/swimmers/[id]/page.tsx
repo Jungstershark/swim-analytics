@@ -331,7 +331,7 @@ export default function SwimmerProfilePage() {
                                       return (
                                         <div key={leg.leg_number} className={`rounded-lg px-4 py-3 border min-w-[140px] ${isMe ? "bg-ssa-teal/10 border-ssa-teal/30 ring-1 ring-ssa-teal/20" : "bg-white border-gray-200"}`}>
                                           <div className="text-[10px] text-gray-400 uppercase text-center">Leg {leg.leg_number}</div>
-                                          <div className={`text-sm font-semibold text-center ${isMe ? "text-ssa-teal" : "text-gray-700"}`}>{leg.swimmer.name.replace(", ", " ")}</div>
+                                          <div className={`text-sm font-semibold text-center ${isMe ? "text-ssa-teal" : "text-gray-700"}`}>{displayName(leg.swimmer.name).replace(", ", " ")}</div>
                                           <div className="text-sm font-mono font-bold text-ssa-navy mt-1 text-center">{leg.split_time || "--"}</div>
                                           {leg.reaction_time && <div className="text-[10px] font-mono text-gray-400 text-center">RT {leg.reaction_time}</div>}
                                           {legSplits.length > 0 && (

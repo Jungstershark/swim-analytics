@@ -393,7 +393,7 @@ export default function ResultsPage() {
                                   </div>
                                 ) : (
                                   <span className="text-sm text-gray-600">
-                                    {result.legs?.map(l => l.swimmer.name.replace(", ", " ")).join(", ") || result.team_name}
+                                    {result.legs?.map(l => displayName(l.swimmer.name).replace(", ", " ")).join(", ") || result.team_name}
                                   </span>
                                 )}
                               </td>
@@ -540,7 +540,7 @@ export default function ResultsPage() {
                                         <div key={leg.leg_number} className="rounded-lg px-4 py-3 border bg-white border-gray-200 min-w-[140px]">
                                           <div className="text-[10px] text-gray-400 uppercase text-center">Leg {leg.leg_number}</div>
                                           <a href={`/swimmers/${leg.swimmer.id}`} className="block text-sm font-semibold text-ssa-navy hover:text-ssa-teal transition-colors text-center">
-                                            {leg.swimmer.name.replace(", ", " ")}
+                                            {displayName(leg.swimmer.name).replace(", ", " ")}
                                           </a>
                                           <div className="text-sm font-mono font-bold text-ssa-navy mt-1 text-center">{leg.split_time || "--"}</div>
                                           {leg.reaction_time && <div className="text-[10px] font-mono text-gray-400 text-center">RT {leg.reaction_time}</div>}
