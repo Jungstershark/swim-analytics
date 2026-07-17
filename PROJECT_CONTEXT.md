@@ -1,8 +1,24 @@
 # Swim Analytics — Project Context
 
 **Project:** SSA Swim Meet Results Platform
-**Status:** Phase 2 (Integration) — ~75% Complete
-**Last Updated:** 2026-03-28
+**Status:** Phase 2 (Integration) — ~85% Complete
+**Last Updated:** 2026-07-04
+
+**Workspace:** `/home/hermes/srv/hermes/workspace/swim-analytics/`
+
+---
+
+## REALITY CHECK (July 2026)
+
+The previous PROJECT_CONTEXT was stale. Actual state is better than documented:
+
+- ✅ Swimmer profile page — **BUILT** (367 lines, PBs + relays + progression charts)
+- ✅ Meet detail page — **BUILT** (245 lines, events grouped, expandable)
+- ✅ Next.js API proxy — **ALREADY CONFIGURED** (rewrites /api/* → backend)
+- ✅ 8 REST endpoints — all implemented in main.py (1149 lines)
+- ✅ PDF parser — 600+ lines, handles splits, DQs, relays, guests
+
+The project is ~85-90% complete. Remaining work is deployment, not code.
 
 ---
 
@@ -23,33 +39,36 @@ Build a web platform for Singapore Swimming Association where coaches and swimme
 ## PROJECT STRUCTURE
 
 ```
-.openclaw/workspace/Projects/swim_analytics_project/
+swim-analytics/
 ├── frontend/              # Next.js 14 + TypeScript + Tailwind
 │   ├── app/
 │   │   ├── page.tsx              # Dashboard (stats, recent meets)
 │   │   ├── upload/page.tsx       # PDF upload UI (drag & drop)
 │   │   ├── results/page.tsx      # Results table (search, filters, pagination)
+│   │   ├── swimmers/page.tsx     # Swimmers list + search
+│   │   ├── swimmers/[id]/page.tsx # Swimmer profile + PBs + progression charts
+│   │   ├── meets/[id]/page.tsx   # Meet detail + event groups
 │   │   └── layout.tsx            # Nav header with SSA branding
 │   ├── lib/
-│   │   ├── api.ts                # Typed API client (fetches backend)
-│   │   ├── db.ts                 # Prisma client singleton
-│   │   └── parsers/hytek.ts      # Node.js parser (backup, not primary)
-│   ├── prisma/
-│   │   └── schema.prisma         # DB schema (Swimmer, Meet, Result)
+│   │   └── api.ts                # Typed API client (fetches backend)
 │   ├── package.json
-│   └── SPEC.md                   # Full technical specification
+│   ├── next.config.js            # <-- API proxy to backend configured here
+│   ├── SPEC.md                   # Full technical specification
+│   └── tailwind.config.ts
 │
 └── backend/               # Python FastAPI + SQLAlchemy + pdfplumber
     ├── app/
-    │   ├── main.py               # FastAPI app (7 endpoints)
-    │   ├── models.py             # SQLAlchemy models (matches Prisma)
+    │   ├── main.py               # FastAPI app (8 endpoints, 1149 lines)
+    │   ├── models.py             # SQLAlchemy models (Swimmer, Meet, Result, Relay)
     │   ├── schemas.py            # Pydantic request/response schemas
-    │   ├── database.py           # PostgreSQL connection
+    │   ├── database.py           # PostgreSQL connection (DATABASE_URL from env)
+    │   ├── api/                   # Additional API modules
     │   └── parsers/
-    │       └── hytek.py          # PDF parser (600+ lines, production-grade)
+    │       ├── base.py           # Parser dispatch
+    │       └── hytek.py          # HY-TEK PDF parser (600+ lines)
+    ├── alembic/                  # DB migrations
     ├── requirements.txt
-    ├── .env                      # DATABASE_URL
-    └── venv/                     # Python virtual environment
+    └── tests/                    # Parser tests
 ```
 
 ---
@@ -152,50 +171,64 @@ model Result {
 
 ---
 
-## IMMEDIATE NEXT STEPS (MVP Completion)
+## DEPLOYMENT PLAN (Sharklet — KIV)
 
-### Step 1: Start Backend Server
+### Target Architecture
+```
+sharklet-apex (control-plane, NVMe)
+  └─ PostgreSQL (single instance, shared across apps)
+       └─ DB: swim_analytics  (user: swim_admin)
+
+Worker node (sharklet-2 or sharklet-3)
+  ├─ Backend (FastAPI, port 8000)
+  └─ Frontend (Next.js, port 3000)
+
+  swim.sharklet.lan  →  ingress-nginx  →  frontend  →  proxy  →  backend
+```
+
+### Phase 1: Infrastructure
+- [ ] Install PostgreSQL on sharklet-apex
+- [ ] Create database swim_analytics + user swim_admin
+- [ ] Document connection string (for future migration reference)
+
+### Phase 2: Code Fixes (Before Deployment)
+- [ ] Create backend/.env — DATABASE_URL pointing to apex PG
+- [ ] Update CORS origins — add swim.sharklet.lan
+- [ ] Update next.config.js proxy — point to backend service name
+- [ ] Fix Python 3.13 compatibility (psycopg2-binary version)
+
+### Phase 3: Kubernetes Deployment (fleet-infra)
+- [ ] Create clusters/sharklet/apps/swim-backend/  (deployment, service, ingress)
+- [ ] Create clusters/sharklet/apps/swim-frontend/  (deployment, service, ingress)
+- [ ] Register in clusters/sharklet/apps/kustomization.yaml
+- [ ] Push → Flux reconciles → live at swim.sharklet.lan
+
+### Phase 4: E2E Verification
+- [ ] Upload test PDF → verify parsing
+- [ ] Browse results, swimmers, meets
+- [ ] Check progression charts and PB tracking
+
+### Immediate Next Steps (When Ready to Execute)
 ```bash
-cd /home/jungyi-test/.openclaw/workspace/Projects/swim_analytics_project/backend
+# Backend
+cd /home/hermes/srv/hermes/workspace/swim-analytics/backend
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd /home/hermes/srv/hermes/workspace/swim-analytics/frontend
+npm install
+npm run dev -- -p 3000
 ```
 
-### Step 2: Configure Next.js API Proxy
-Add to `frontend/next.config.js`:
-```js
-module.exports = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
-      },
-    ]
-  },
-}
-```
-
-### Step 3: Restart Frontend
-```bash
-cd /home/jungyi-test/.openclaw/workspace/Projects/swim_analytics_project/frontend
-npm run dev -- -p 3001
-```
-
-### Step 4: Test End-to-End
-1. Open http://localhost:3001
-2. Click "Upload Results"
-3. Upload: `56th-snag-seniors-2026-results-day-1-session-1.pdf`
-4. Verify success message shows results count
-5. Go to Results page, verify data appears
-6. Search for "WU, Dylan" — should see 2:18.62 in 200 IM
-
-### Step 5: Validate Parser Accuracy
-```bash
-cd backend
-python app/parsers/hytek.py /path/to/56th-snag-seniors.pdf --verbose
-```
-Compare output to original PDF — verify all times, placements, DQs extracted correctly.
+### Known Issues To Fix
+1. **CORS** — only allows localhost:3000/3001, needs swim.sharklet.lan
+2. **Proxy destination** — hardcoded to localhost:8000, needs backend service name
+3. **DATABASE_URL** — defaults to localhost, needs env file pointing to apex
+4. **Python 3.13** — some pinned packages may need version bumps
+5. **No .env** — database credentials exposed in database.py default
 
 ---
 
@@ -203,14 +236,14 @@ Compare output to original PDF — verify all times, placements, DQs extracted c
 
 ### Run Parser Tests
 ```bash
-cd backend
-pytest app/parsers/__tests__/test_hytek.py -v
+cd /home/hermes/srv/hermes/workspace/swim-analytics/backend
+pytest tests/ -v
 ```
 
 ### Test API Endpoints
 ```bash
 # Health check
-curl http://localhost:8000/api/health
+curl http://localhost:8000/
 
 # List meets (after upload)
 curl http://localhost:8000/api/meets
@@ -264,17 +297,13 @@ Not required for MVP:
 
 ```bash
 # Backend
-cd backend
+cd /home/hermes/srv/hermes/workspace/swim-analytics/backend
 source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 
 # Frontend
-cd frontend
-npm run dev -- -p 3001
-
-# Database
-cd frontend
-npm run db:studio    # Open Prisma Studio
+cd /home/hermes/srv/hermes/workspace/swim-analytics/frontend
+npm run dev -- -p 3000
 
 # Parser test
 cd backend
@@ -282,7 +311,7 @@ python app/parsers/hytek.py <pdf_path> --verbose
 
 # Run pytest
 cd backend
-pytest app/parsers/__tests__/test_hytek.py -v
+pytest tests/ -v
 ```
 
 ---
@@ -290,18 +319,20 @@ pytest app/parsers/__tests__/test_hytek.py -v
 ## KNOWN ISSUES / GOTCHAS
 
 1. **API calls fail** — Backend not running or proxy not configured
-2. **CORS errors** — Backend CORS only allows localhost:3000
+2. **CORS errors** — Backend CORS only allows localhost:3000/3001 (needs updating for deployment)
 3. **Database connection** — Ensure PostgreSQL running: `sudo service postgresql start`
 4. **Parser edge cases** — Test with multiple PDFs, may need regex tweaks
+5. **Python 3.13** — This Pi runs Python 3.13.5; some pinned package versions may need bumps
 
 ---
 
 ## CURRENT CONTEXT
 
-- **Session date:** 2026-03-28
-- **Last action:** Comprehensive project review completed
-- **Next action:** Start backend, configure proxy, test E2E upload flow
+- **Session date:** 2026-07-04
+- **Last action:** Full codebase audit, stale references fixed, deployment plan drafted
+- **Next action (KIV):** Execute Phase 1 (PostgreSQL on apex), then Phase 2 (code fixes), then Phase 3 (k8s deploy)
 - **Test PDF available:** `56th-snag-seniors-2026-results-day-1-session-1.pdf`
+- **Target hostname:** `swim.sharklet.lan`
 
 ---
 
