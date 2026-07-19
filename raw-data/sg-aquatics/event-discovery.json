@@ -1,0 +1,1363 @@
+{
+  "index_url": "https://www.sgaquatics.org.sg/swimming/events/event-results/",
+  "discovered_at": "2026-07-18T17:13:13.776327+00:00",
+  "event_count": 10,
+  "status_counts": {
+    "documents_available_no_results": 1,
+    "results_available": 9
+  },
+  "events": [
+    {
+      "title": "Singapore Short-Course Invitational 2026",
+      "url": "https://www.sgaquatics.org.sg/ssci26/",
+      "page_title": "Singapore Short-Course Invitational 2026",
+      "status": "documents_available_no_results",
+      "pdf_count": 1,
+      "category_counts": {
+        "event_information": 1
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/06/Spore-Short-Course-Invitational-2026-Info-Pack-26062026.pdf",
+          "filename": "Spore-Short-Course-Invitational-2026-Info-Pack-26062026.pdf",
+          "category": "event_information"
+        }
+      ]
+    },
+    {
+      "title": "SAQ ETP Championships 2026",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/11thsnsc-25m-2025/saq-etp-championships-2026/",
+      "page_title": "SAQ ETP Championships 2026",
+      "status": "results_available",
+      "pdf_count": 3,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 1,
+        "overall_results": 1
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/04/SAQ-Emerging-Talents-Championships-2026.pdf",
+          "filename": "SAQ-Emerging-Talents-Championships-2026.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/etp-challenge-2026-start-list.pdf",
+          "filename": "etp-challenge-2026-start-list.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/06/saq-etp-championships-2026-full-results.pdf",
+          "filename": "saq-etp-championships-2026-full-results.pdf",
+          "category": "overall_results"
+        }
+      ]
+    },
+    {
+      "title": "21st SNSC 2026",
+      "url": "https://www.sgaquatics.org.sg/21st-snsc-2026/",
+      "page_title": "21st SNSC 2026",
+      "status": "results_available",
+      "pdf_count": 16,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 7,
+        "overall_results": 8
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/21st-Singapore-National-Swimming-Cships-2026-25th-March-2026.pdf",
+          "filename": "21st-Singapore-National-Swimming-Cships-2026-25th-March-2026.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-1-session-1.pdf",
+          "filename": "21st-snsc-2026-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-1-session-2-v2.pdf",
+          "filename": "21st-snsc-2026-start-list-day-1-session-2-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-2-session-3.pdf",
+          "filename": "21st-snsc-2026-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-2-session-4.pdf",
+          "filename": "21st-snsc-2026-start-list-day-2-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-3-session-5.pdf",
+          "filename": "21st-snsc-2026-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-3-session-6-v2.pdf",
+          "filename": "21st-snsc-2026-start-list-day-3-session-6-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-start-list-day-4-session-7.pdf",
+          "filename": "21st-snsc-2026-start-list-day-4-session-7.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-1-session-1.pdf",
+          "filename": "21st-snsc-2026-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-1-session-2.pdf",
+          "filename": "21st-snsc-2026-results-day-1-session-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-2-session-3.pdf",
+          "filename": "21st-snsc-2026-results-day-2-session-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-2-session-4.pdf",
+          "filename": "21st-snsc-2026-results-day-2-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-3-session-5.pdf",
+          "filename": "21st-snsc-2026-results-day-3-session-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-3-session-6.pdf",
+          "filename": "21st-snsc-2026-results-day-3-session-6.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-4-session-7.pdf",
+          "filename": "21st-snsc-2026-results-day-4-session-7.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/05/21st-snsc-2026-results-day-4-session-8.pdf",
+          "filename": "21st-snsc-2026-results-day-4-session-8.pdf",
+          "category": "overall_results"
+        }
+      ]
+    },
+    {
+      "title": "56th SNAG 2026",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/56th-snag-2026/",
+      "page_title": "56th SNAG 2026",
+      "status": "results_available",
+      "pdf_count": 46,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 17,
+        "overall_results": 17,
+        "medal_tally": 5,
+        "age_group_results": 6
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/56th-Singapore-National-Age-Group-Swimming-Cships-2026-5th-January-2026.pdf",
+          "filename": "56th-Singapore-National-Age-Group-Swimming-Cships-2026-5th-January-2026.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-1-session-1.pdf",
+          "filename": "56th-snag-juniors-2026-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-2-session-2.pdf",
+          "filename": "56th-snag-juniors-2026-start-list-day-2-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-2-session-3.pdf",
+          "filename": "56th-snag-juniors-2026-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-3-session-4.pdf",
+          "filename": "56th-snag-juniors-2026-start-list-day-3-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-3-session-5.pdf",
+          "filename": "56th-snag-juniors-2026-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-1-session-1.pdf",
+          "filename": "56th-snag-juniors-2026-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-2-session-2.pdf",
+          "filename": "56th-snag-juniors-2026-results-day-2-session-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-day-2-session-3-full-results.pdf",
+          "filename": "56th-snag-juniors-2026-day-2-session-3-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-3-session-4.pdf",
+          "filename": "56th-snag-juniors-2026-results-day-3-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-3-session-5.pdf",
+          "filename": "56th-snag-juniors-2026-results-day-3-session-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-Tally-with-overseas-teams-and-foreign-swimmers.pdf",
+          "filename": "Medal-Tally-with-overseas-teams-and-foreign-swimmers.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-tally-with-local-affiliates-including-their-foreign-swimmers.pdf",
+          "filename": "Medal-tally-with-local-affiliates-including-their-foreign-swimmers.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-tally-with-for-local-affiliates-with-singaporean-swimmers-only.pdf",
+          "filename": "Medal-tally-with-for-local-affiliates-with-singaporean-swimmers-only.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-1-session-1.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-1-session-2.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-1-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-2-session-3.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-2-session-4-3.36pm.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-2-session-4-3.36pm.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-3-session-5.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-3-session-6.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-3-session-6.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-4-session-7.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-4-session-7.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-4-session-8.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-4-session-8.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-5-session-9.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-5-session-9.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-5-session-10.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-5-session-10.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-6-session-11.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-6-session-11.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-6-session-12-2.27pm.pdf",
+          "filename": "56th-snag-seniors-2026-start-list-day-6-session-12-2.27pm.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-session-1.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-session-2.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-1-session-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-session-3.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-2-session-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-session-4.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-2-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-session-5.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-3-session-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-session-6.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-3-session-6.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-session-7.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-4-session-7.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-session-8.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-4-session-8.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-session-9.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-5-session-9.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-session-10.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-5-session-10.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-session-11.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-6-session-11.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-session-12.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-6-session-12.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-1-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-2-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-3-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-4-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-5-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-finals-by-age-group.pdf",
+          "filename": "56th-snag-seniors-2026-results-day-6-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-SNAG-Seniors-2026-Medal-tally-with-overseas-teams-and-affilaites-foreign-swimmers.pdf",
+          "filename": "56th-SNAG-Seniors-2026-Medal-tally-with-overseas-teams-and-affilaites-foreign-swimmers.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-SNAG-Seniors-2026-Medal-tally-with-singaporean-swimmers-only.pdf",
+          "filename": "56th-SNAG-Seniors-2026-Medal-tally-with-singaporean-swimmers-only.pdf",
+          "category": "medal_tally"
+        }
+      ]
+    },
+    {
+      "title": "Singapore Swim Series 2026",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/singapore-swim-series-2026/",
+      "page_title": "Singapore Swim Series 2026",
+      "status": "results_available",
+      "pdf_count": 32,
+      "category_counts": {
+        "event_information": 2,
+        "start_list": 14,
+        "overall_results": 16
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/Singapore-Swim-Series-January-2026-Info-Pack.pdf",
+          "filename": "Singapore-Swim-Series-January-2026-Info-Pack.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-start-list-s1.pdf",
+          "filename": "jan-swim-series-2026-start-list-s1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-start-list-s2.pdf",
+          "filename": "jan-swim-series-2026-start-list-s2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-flight-a-a-finals-start-list-v2.pdf",
+          "filename": "jan-swim-series-2026-flight-a-a-finals-start-list-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-start-list-s3.pdf",
+          "filename": "jan-swim-series-2026-start-list-s3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-start-list-s4.pdf",
+          "filename": "jan-swim-series-2026-start-list-s4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-flight-a-a-finals-start-list-day-3-v2.pdf",
+          "filename": "jan-swim-series-2026-flight-a-a-finals-start-list-day-3-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-start-list-s5.pdf",
+          "filename": "jan-swim-series-2026-start-list-s5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-1-session-1.pdf",
+          "filename": "jan-swim-series-2026-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-2-session-2.pdf",
+          "filename": "jan-swim-series-2026-results-day-2-session-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-2-a-finals.pdf",
+          "filename": "jan-swim-series-2026-results-day-2-a-finals.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-2-session-3.pdf",
+          "filename": "jan-swim-series-2026-results-day-2-session-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-3-session-4.pdf",
+          "filename": "jan-swim-series-2026-results-day-3-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-3-a-finals.pdf",
+          "filename": "jan-swim-series-2026-results-day-3-a-finals.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-results-day-3-session-5.pdf",
+          "filename": "jan-swim-series-2026-results-day-3-session-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/jan-swim-series-2026-full-results.pdf",
+          "filename": "jan-swim-series-2026-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/Singapore-Swim-Series-February-2026-Info-Pack-1.pdf",
+          "filename": "Singapore-Swim-Series-February-2026-Info-Pack-1.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-1-session-1.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-2-session-2.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-2-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-2-session-3-seniors-finals.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-2-session-3-seniors-finals.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-2-session-3.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-3-session-5-seniors-finals.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-3-session-5-seniors-finals.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-3-session-4-v2.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-3-session-4-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-start-list-day-3-session-5.pdf",
+          "filename": "feb-swim-series-2026-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day1s1.pdf",
+          "filename": "feb-swim-series-2026-results-day1s1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day1s2.pdf",
+          "filename": "feb-swim-series-2026-results-day1s2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day-2-a-finals.pdf",
+          "filename": "feb-swim-series-2026-results-day-2-a-finals.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day-2-s3.pdf",
+          "filename": "feb-swim-series-2026-results-day-2-s3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day-3-a-finals-1.pdf",
+          "filename": "feb-swim-series-2026-results-day-3-a-finals-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day-3-s4.pdf",
+          "filename": "feb-swim-series-2026-results-day-3-s4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-results-day-3-s5.pdf",
+          "filename": "feb-swim-series-2026-results-day-3-s5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/02/feb-swim-series-2026-full-results.pdf",
+          "filename": "feb-swim-series-2026-full-results.pdf",
+          "category": "overall_results"
+        }
+      ]
+    },
+    {
+      "title": "11th Singapore National Swimming Championships (25m) 2025",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/11thsnsc-25m-2025/",
+      "page_title": "11th Singapore National Swimming Championships (25m) 2025",
+      "status": "results_available",
+      "pdf_count": 13,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 5,
+        "overall_results": 5,
+        "other_pdf": 1,
+        "medal_tally": 1
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/09/11th-SNSC-SCM-2025-Info-Pack-v2.pdf",
+          "filename": "11th-SNSC-SCM-2025-Info-Pack-v2.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-1-session-1.pdf",
+          "filename": "11th-snsc-scm-2025-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-2-session-2.pdf",
+          "filename": "11th-snsc-scm-2025-start-list-day-2-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-3-session-4.pdf",
+          "filename": "11th-snsc-scm-2025-start-list-day-3-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-2-session-3-1.pdf",
+          "filename": "11th-snsc-scm-2025-start-list-day-2-session-3-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-3-session-5.pdf",
+          "filename": "11th-snsc-scm-2025-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-1-session-1.pdf",
+          "filename": "11th-snsc-scm-2025-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/day-2-session-2-full-results.pdf",
+          "filename": "day-2-session-2-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-2-session-3.pdf",
+          "filename": "11th-snsc-scm-2025-results-day-2-session-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-3-session-4.pdf",
+          "filename": "11th-snsc-scm-2025-results-day-3-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-day-3-session-5-finals.pdf",
+          "filename": "11th-snsc-scm-day-3-session-5-finals.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-full-results.pdf",
+          "filename": "11th-snsc-scm-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-medal-tally.pdf",
+          "filename": "11th-snsc-scm-medal-tally.pdf",
+          "category": "medal_tally"
+        }
+      ]
+    },
+    {
+      "title": "47th SEA AGE Group Aquatics Championships",
+      "url": "https://www.sgaquatics.org.sg/47th-sea-age-group-aquatics-championships/",
+      "page_title": "47th SEA AGE Group Aquatics Championships",
+      "status": "results_available",
+      "pdf_count": 43,
+      "category_counts": {
+        "event_information": 1,
+        "other_pdf": 15,
+        "overall_results": 18,
+        "medal_tally": 3,
+        "start_list": 6
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/EVENT-SUMMON-47th-SEA-AGE-GROUP-CHAMPIONSHIPS-2025Singapore-30-April.pdf",
+          "filename": "EVENT-SUMMON-47th-SEA-AGE-GROUP-CHAMPIONSHIPS-2025Singapore-30-April.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/AS-SCHEDULE.pdf",
+          "filename": "AS-SCHEDULE.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/250611_SEA-Age-2025-Competition-Schedule.pdf",
+          "filename": "250611_SEA-Age-2025-Competition-Schedule.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/20-June-Day-1-Full-Results.pdf",
+          "filename": "20-June-Day-1-Full-Results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/21-June-Day-2-Full-Results.pdf",
+          "filename": "21-June-Day-2-Full-Results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/22-June-Day-3-Full-Results.pdf",
+          "filename": "22-June-Day-3-Full-Results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/07/SEA-Age-AS-2025-Medal-Tally-Google-Sheets.pdf",
+          "filename": "SEA-Age-AS-2025-Medal-Tally-Google-Sheets.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/DV-SCHEDULE.pdf",
+          "filename": "DV-SCHEDULE.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/Day-1-Start-List-with-Dives.pdf",
+          "filename": "Day-1-Start-List-with-Dives.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/Start-List-D2.pdf",
+          "filename": "Start-List-D2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/Start-List-D3.pdf",
+          "filename": "Start-List-D3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-101-results.pdf",
+          "filename": "47th-SEA-Age-101-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-102-results.pdf",
+          "filename": "47th-SEA-Age-102-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-103-results.pdf",
+          "filename": "47th-SEA-Age-103-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-104-results.pdf",
+          "filename": "47th-SEA-Age-104-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-105-results.pdf",
+          "filename": "47th-SEA-Age-105-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-106-results.pdf",
+          "filename": "47th-SEA-Age-106-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-107-results.pdf",
+          "filename": "47th-SEA-Age-107-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-SEA-Age-108-results.pdf",
+          "filename": "47th-SEA-Age-108-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/2025-06-28-11-49-1.pdf",
+          "filename": "2025-06-28-11-49-1.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/203-204-Results-1.pdf",
+          "filename": "203-204-Results-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/205-206-Results.pdf",
+          "filename": "205-206-Results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/Results-207-and-208.pdf",
+          "filename": "Results-207-and-208.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/07/301-302-2.pdf",
+          "filename": "301-302-2.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/07/303-304-3.pdf",
+          "filename": "303-304-3.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/07/305-306-1.pdf",
+          "filename": "305-306-1.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/07/Diving-Medal-Tally.pdf",
+          "filename": "Diving-Medal-Tally.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/SEA-Age-SCHEDULE-2.pdf",
+          "filename": "SEA-Age-SCHEDULE-2.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/Swimming-Schedule.pdf",
+          "filename": "Swimming-Schedule.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-2025-start-list-day-1.pdf",
+          "filename": "47th-sea-age-swimming-2025-start-list-day-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-2025-start-list-day-2.pdf",
+          "filename": "47th-sea-age-swimming-2025-start-list-day-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-2025-start-list-day-3.pdf",
+          "filename": "47th-sea-age-swimming-2025-start-list-day-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-results-day-1.pdf",
+          "filename": "47th-sea-age-swimming-results-day-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-results-day-2.pdf",
+          "filename": "47th-sea-age-swimming-results-day-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-results-day-3-30-June-2025.pdf",
+          "filename": "47th-sea-age-swimming-results-day-3-30-June-2025.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-full-results-30-June-2025.pdf",
+          "filename": "47th-sea-age-swimming-full-results-30-June-2025.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-medal-tally-30-june-2025.pdf",
+          "filename": "47th-sea-age-swimming-medal-tally-30-june-2025.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/47th-sea-age-swimming-meet-records-2025-as-of-30-june-2025.pdf",
+          "filename": "47th-sea-age-swimming-meet-records-2025-as-of-30-june-2025.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/WP-SCHEDULE.pdf",
+          "filename": "WP-SCHEDULE.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/190625-WP-Day-1-47-SEA-Age-Group-.pdf",
+          "filename": "190625-WP-Day-1-47-SEA-Age-Group-.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/200625-WP-Day-2-47-SEA-Age-Group-.pdf",
+          "filename": "200625-WP-Day-2-47-SEA-Age-Group-.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/210625-WP-Day-3-47-SEA-Age-Group.pdf",
+          "filename": "210625-WP-Day-3-47-SEA-Age-Group.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/220625-WP-Day-4-47-SEA-Age-Group.pdf",
+          "filename": "220625-WP-Day-4-47-SEA-Age-Group.pdf",
+          "category": "other_pdf"
+        }
+      ]
+    },
+    {
+      "title": "20th SNSC 2025",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/20th-snsc-2025/",
+      "page_title": "20th SNSC 2025",
+      "status": "results_available",
+      "pdf_count": 17,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 7,
+        "overall_results": 9
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/10/11th-SNSC-SCM-2025-Info-Pack-v3.pdf",
+          "filename": "11th-SNSC-SCM-2025-Info-Pack-v3.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/20th-snsc-2025-start-list-day-1-session-1.pdf",
+          "filename": "20th-snsc-2025-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/20th-snsc-2025-start-list-day-2-session-3.rtf.pdf",
+          "filename": "20th-snsc-2025-start-list-day-2-session-3.rtf.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/20th-snsc-2025-start-list-day-3-session-5.pdf",
+          "filename": "20th-snsc-2025-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/20th-snsc-2025-start-list-day-4-session-7-v2.pdf",
+          "filename": "20th-snsc-2025-start-list-day-4-session-7-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/20th-snsc-2025-start-list-day-1-session-2-v2.pdf",
+          "filename": "20th-snsc-2025-start-list-day-1-session-2-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/20th-snsc-2025-start-list-day-2-session-4-v2-1.pdf",
+          "filename": "20th-snsc-2025-start-list-day-2-session-4-v2-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-3-heats-results.pdf",
+          "filename": "snsc2025-day-3-heats-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/20th-snsc-2025-start-list-day-4-session-8-v3.pdf",
+          "filename": "20th-snsc-2025-start-list-day-4-session-8-v3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/snsc2025-day-1-heats-results.pdf",
+          "filename": "snsc2025-day-1-heats-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-2-heats-results.pdf",
+          "filename": "snsc2025-day-2-heats-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-4-heats-results.pdf",
+          "filename": "snsc2025-day-4-heats-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/05/snsc2025-day-1-finals-results.pdf",
+          "filename": "snsc2025-day-1-finals-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-2-finals-results.pdf",
+          "filename": "snsc2025-day-2-finals-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-3-finals-results.pdf",
+          "filename": "snsc2025-day-3-finals-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-4-finals-results.pdf",
+          "filename": "snsc2025-day-4-finals-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/06/snsc2025-day-full-results.pdf",
+          "filename": "snsc2025-day-full-results.pdf",
+          "category": "overall_results"
+        }
+      ]
+    },
+    {
+      "title": "Singapore Swim Series 2025",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/singapore-swim-series-2025/",
+      "page_title": "Singapore Swim Series 2025",
+      "status": "results_available",
+      "pdf_count": 24,
+      "category_counts": {
+        "event_information": 1,
+        "other_pdf": 5,
+        "start_list": 10,
+        "overall_results": 8
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2024/12/Singapore-Swim-Series-January-2025-Info-Pack.pdf",
+          "filename": "Singapore-Swim-Series-January-2025-Info-Pack.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/Jan-Swim-Series-2025-Team-Leader-Slides.pdf",
+          "filename": "Jan-Swim-Series-2025-Team-Leader-Slides.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/January-Swim-Series-2025-Start-List-session-1-v2.pdf",
+          "filename": "January-Swim-Series-2025-Start-List-session-1-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/January-Swim-Series-2025-Start-List-session-2.pdf",
+          "filename": "January-Swim-Series-2025-Start-List-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/January-Swim-Series-2025-Start-List-session-3.pdf",
+          "filename": "January-Swim-Series-2025-Start-List-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/January-Swim-Series-2025-Start-List-session-4.pdf",
+          "filename": "January-Swim-Series-2025-Start-List-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/January-Swim-Series-2025-Start-List-session-5.pdf",
+          "filename": "January-Swim-Series-2025-Start-List-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/jan-swim-series-2025-day-1-session-1.pdf",
+          "filename": "jan-swim-series-2025-day-1-session-1.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/jan-swim-series-2025-day-2-session-2.pdf",
+          "filename": "jan-swim-series-2025-day-2-session-2.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/jan-swim-series-2025-day-2-session-3-results.pdf",
+          "filename": "jan-swim-series-2025-day-2-session-3-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/jan-swim-series-2025-day-3-session-4-results.pdf",
+          "filename": "jan-swim-series-2025-day-3-session-4-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/jan-swim-series-2025-day-3-session-5-results.pdf",
+          "filename": "jan-swim-series-2025-day-3-session-5-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2024/12/Singapore-Swim-Series-II-2025-February.pdf",
+          "filename": "Singapore-Swim-Series-II-2025-February.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/Feb-Swim-Series-2025-Team-Leader-Slides.pdf",
+          "filename": "Feb-Swim-Series-2025-Team-Leader-Slides.pdf",
+          "category": "other_pdf"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/february-swim-series-2025-start-list-session-1-v2.pdf",
+          "filename": "february-swim-series-2025-start-list-session-1-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/february-swim-series-2025-start-list-session-2.pdf",
+          "filename": "february-swim-series-2025-start-list-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/february-swim-series-2025-start-list-session-3.pdf",
+          "filename": "february-swim-series-2025-start-list-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/february-swim-series-2025-start-list-session-4.pdf",
+          "filename": "february-swim-series-2025-start-list-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/february-swim-series-2025-start-list-session-5.pdf",
+          "filename": "february-swim-series-2025-start-list-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/feb-swim-series-2025-day-1session-1-results_v2.pdf",
+          "filename": "feb-swim-series-2025-day-1session-1-results_v2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/feb-swim-series-2025-day-2-session-2-results_v2.pdf",
+          "filename": "feb-swim-series-2025-day-2-session-2-results_v2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/feb-swim-series-2025-day-2-session-3-results_v2.pdf",
+          "filename": "feb-swim-series-2025-day-2-session-3-results_v2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/feb-swim-series-2025-day-3-session-4-results_v2.pdf",
+          "filename": "feb-swim-series-2025-day-3-session-4-results_v2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/02/feb-swim-series-2025-day-3-session-5-results_v2.pdf",
+          "filename": "feb-swim-series-2025-day-3-session-5-results_v2.pdf",
+          "category": "overall_results"
+        }
+      ]
+    },
+    {
+      "title": "55th SNAG 2025",
+      "url": "https://www.sgaquatics.org.sg/swimming/events/55th-snag-2025/",
+      "page_title": "55th SNAG 2025",
+      "status": "results_available",
+      "pdf_count": 46,
+      "category_counts": {
+        "event_information": 1,
+        "start_list": 16,
+        "overall_results": 24,
+        "medal_tally": 3,
+        "age_group_results": 2
+      },
+      "pdfs": [
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/01/55th-Singapore-National-Age-Group-Swimming-Cships-2025.pdf",
+          "filename": "55th-Singapore-National-Age-Group-Swimming-Cships-2025.pdf",
+          "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-2025-juniors-start-list-day-1-session-1.pdf",
+          "filename": "55th-snag-2025-juniors-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-2025-juniors-start-list-day-2-session-2.pdf",
+          "filename": "55th-snag-2025-juniors-start-list-day-2-session-2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-2025-juniors-start-list-day-2-session-3.pdf",
+          "filename": "55th-snag-2025-juniors-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-2025-juniors-start-list-day-3-session-4.pdf",
+          "filename": "55th-snag-2025-juniors-start-list-day-3-session-4.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-2025-juniors-start-list-day-3-session-5.pdf",
+          "filename": "55th-snag-2025-juniors-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-results-j1-day-1-session-1-16-march-2025.pdf",
+          "filename": "55th-snag-juniors-results-j1-day-1-session-1-16-march-2025.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-results-j2-day-session-2.pdf",
+          "filename": "55th-snag-juniors-results-j2-day-session-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-results-j3-day-2-session-3.pdf",
+          "filename": "55th-snag-juniors-results-j3-day-2-session-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-results-j4-day-3-session-4.pdf",
+          "filename": "55th-snag-juniors-results-j4-day-3-session-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-results-j5-day-3-session-5.pdf",
+          "filename": "55th-snag-juniors-results-j5-day-3-session-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-juniors-full-results.pdf",
+          "filename": "55th-snag-juniors-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/snag-juniors-medal-tally-with-foreign-teams-and-swimmers.pdf",
+          "filename": "snag-juniors-medal-tally-with-foreign-teams-and-swimmers.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/snag-junior-medal-tally-with-local-swimmers-only-including-valid-FIN.pdf",
+          "filename": "snag-junior-medal-tally-with-local-swimmers-only-including-valid-FIN.pdf",
+          "category": "medal_tally"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-1-session-1.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-1-finals-based-on-a-b-and-superfinal.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-1-finals-based-on-a-b-and-superfinal.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-2-session-3.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-2-session-3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-2-finals.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-2-finals.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-3-session-5.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-3-session-5.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-3-finals.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-3-finals.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-4-session-7.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-4-session-7.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-4-finals.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-4-finals.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-5-session-9-20-March-2025.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-5-session-9-20-March-2025.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-5-finals-1.55pm.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-5-finals-1.55pm.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-6-session-11.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-6-session-11.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-start-list-day-6-finals-1.56pm.pdf",
+          "filename": "55th-snag-seniors-2025-start-list-day-6-finals-1.56pm.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-1-session-1.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-1-session-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-2-heatss.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-2-heatss.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-2-finals-based-on-a-b-and-superfinal.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-2-finals-based-on-a-b-and-superfinal.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/snag-seniors-results-day-3-heats.pdf",
+          "filename": "snag-seniors-results-day-3-heats.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-results-day-3-finals-based-on-a-b-and-superfinal.pdf",
+          "filename": "55th-snag-seniors-results-day-3-finals-based-on-a-b-and-superfinal.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-results-day-4-heats.pdf",
+          "filename": "55th-snag-seniors-results-day-4-heats.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/results-based-on-ab-super-finals-on-day-4.pdf",
+          "filename": "results-based-on-ab-super-finals-on-day-4.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-5-heats.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-5-heats.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/results-based-on-ab-super-finals-on-day-5.pdf",
+          "filename": "results-based-on-ab-super-finals-on-day-5.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-6-heats.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-6-heats.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/results-based-on-ab-super-finals-on-day-6.pdf",
+          "filename": "results-based-on-ab-super-finals-on-day-6.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-results-and-placings-based-on-age-groups-day-1.pdf",
+          "filename": "55th-snag-seniors-results-and-placings-based-on-age-groups-day-1.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-results-and-placings-based-on-age-groups-day-2.pdf",
+          "filename": "55th-snag-seniors-results-and-placings-based-on-age-groups-day-2.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-results-and-placings-based-on-age-groups-day-3.pdf",
+          "filename": "55th-snag-seniors-results-and-placings-based-on-age-groups-day-3.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-4-finals-by-age-group.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-4-finals-by-age-group.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/55th-snag-seniors-2025-results-day-5-finals-by-age-group-v2.pdf",
+          "filename": "55th-snag-seniors-2025-results-day-5-finals-by-age-group-v2.pdf",
+          "category": "age_group_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/day-6-finals-results-by-age-group-as-of-29-march-2025.pdf",
+          "filename": "day-6-finals-results-by-age-group-as-of-29-march-2025.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/full-results-by-age-group-as-of-29-march-2025.pdf",
+          "filename": "full-results-by-age-group-as-of-29-march-2025.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/full-results-sorted-by-a-b-super-finals.pdf",
+          "filename": "full-results-sorted-by-a-b-super-finals.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2025/03/medal-tally-with-saq-affiliates-only.pdf",
+          "filename": "medal-tally-with-saq-affiliates-only.pdf",
+          "category": "medal_tally"
+        }
+      ]
+    }
+  ]
+}

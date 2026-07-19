@@ -196,13 +196,29 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
 --- Hong, Cheng Hou 13 Swimfast Aquatic Club 3:00.90 NS"""
 
     def test_meet_metadata(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         assert meet.meet_name == "56th SNAG Seniors"
         assert meet.meet_dates == "17/3/2026 to 22/3/2026"
         assert meet.session == "Day 1 Session 1"
 
+    def test_single_day_meet_metadata(self):
+        """Some HY-TEK PDFs use one meet date instead of a date range."""
+        page = """Spectrum Aquatics Swim Team HY-TEK's MEET MANAGER 8.0 - 12:48 PM 31/5/2026 Page 1
+SAQ Emerging Talents Championships 2026 - 31/5/2026
+Results
+Event 1 Mixed 10 Year Olds 50 SC Meter Butterfly
+Name Age Team Seed Time Finals Time
+1 Drum, Hayden F 10 X Lab 34.42 34.02
+15.72 34.02 (18.30)"""
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_name == "SAQ Emerging Talents Championships 2026"
+        assert meet.meet_dates == "31/5/2026"
+        assert confidence.checks["meet_name"] is True
+        assert confidence.checks["meet_dates"] is True
+
     def test_event_parsed(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         assert len(meet.events) == 1
         evt = meet.events[0]
         assert evt.event_number == "101"
@@ -216,11 +232,11 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert evt.time_type == "Prelim Time"
 
     def test_result_count(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         assert len(meet.events[0].results) == 4  # 2 normal + 1 DQ + 1 NS
 
     def test_first_result(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         r = meet.events[0].results[0]
         assert r.placement == 1
         assert r.name == "WU, Dylan Jiaxu"
@@ -234,12 +250,12 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert r.is_ns is False
 
     def test_first_result_reaction_time(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         r = meet.events[0].results[0]
         assert r.reaction_time == "0.66"
 
     def test_first_result_splits(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         r = meet.events[0].results[0]
         assert len(r.splits) == 4
         assert r.splits[0].cumulative_time == "29.54"
@@ -252,7 +268,7 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert r.splits[3].distance == 200
 
     def test_dq_result(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         dq = meet.events[0].results[2]
         assert dq.placement is None
         assert dq.name == "Tao, Shoichi"
@@ -263,7 +279,7 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert "Hands brought back" in dq.dq_description
 
     def test_ns_result(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         ns = meet.events[0].results[3]
         assert ns.placement is None
         assert ns.name == "Hong, Cheng Hou"
@@ -271,20 +287,20 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert ns.finals_time is None
 
     def test_empty_input(self):
-        meet = parse_hytek_text([])
+        meet, _confidence = parse_hytek_text([])
         assert meet.meet_name == ""
         assert len(meet.events) == 0
 
     def test_empty_page(self):
-        meet = parse_hytek_text(["", None, ""])
+        meet, _confidence = parse_hytek_text(["", None, ""])
         assert len(meet.events) == 0
 
     def test_total_results_property(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         assert meet.total_results == 4
 
     def test_unique_swimmers_property(self):
-        meet = parse_hytek_text([self.SAMPLE_PAGE])
+        meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])
         swimmers = meet.unique_swimmers
         assert len(swimmers) == 4
         assert "WU, Dylan Jiaxu" in swimmers

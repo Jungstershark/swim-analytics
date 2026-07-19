@@ -10,7 +10,23 @@ from alembic import context
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import DATABASE_URL, Base  # noqa: E402
-from app.models import Meet, Result, Swimmer  # noqa: E402, F401
+from app.models import (  # noqa: E402, F401
+    DocumentClassification,
+    IngestionRun,
+    Meet,
+    MonitorRun,
+    ParseJob,
+    RawDocument,
+    RelayLeg,
+    RelayResult,
+    Result,
+    SourceEvent,
+    SourceEventDocument,
+    SourceReference,
+    SourceRule,
+    SourceSite,
+    Swimmer,
+)
 
 config = context.config
 
