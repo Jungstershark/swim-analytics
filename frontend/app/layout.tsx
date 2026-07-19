@@ -75,28 +75,33 @@ export default function RootLayout({
                 >
                   Swimmers
                 </a>
+                <a
+                  href="/admin/sources"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  Sources
+                </a>
               </nav>
 
-              {/* Mobile menu button */}
-              <button
-                className="md:hidden p-2 rounded-md text-gray-300 hover:text-white hover:bg-white/10"
-                aria-label="Open navigation menu"
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M4 6h16M4 12h16M4 18h16"
-                  />
-                </svg>
-              </button>
+              {/* Mobile navigation is rendered as a compact scroll row below. */}
             </div>
+            <nav className="md:hidden flex items-center gap-2 overflow-x-auto border-t border-ssa-navy-light py-2" aria-label="Mobile navigation">
+              {[
+                ["Dashboard", "/"],
+                ["Upload", "/upload"],
+                ["Results", "/results"],
+                ["Swimmers", "/swimmers"],
+                ["Sources", "/admin/sources"],
+              ].map(([label, href]) => (
+                <a
+                  key={href}
+                  href={href}
+                  className="shrink-0 px-3 py-1.5 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
           </div>
         </header>
 

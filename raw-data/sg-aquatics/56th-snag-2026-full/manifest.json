@@ -1,0 +1,474 @@
+{
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/56th-snag-2026/",
+  "downloaded_at": "2026-07-17T16:05:09.956466+00:00",
+  "pdf_count": 46,
+  "category_counts": {
+    "event_information": 1,
+    "start_list": 17,
+    "overall_results": 17,
+    "medal_tally": 5,
+    "age_group_results": 6
+  },
+  "files": [
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/01/56th-Singapore-National-Age-Group-Swimming-Cships-2026-5th-January-2026.pdf",
+      "filename": "56th-Singapore-National-Age-Group-Swimming-Cships-2026-5th-January-2026.pdf",
+      "category": "event_information",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 1308341,
+      "sha256": "06c2d7c82358296ce669a7e8e8107f72fcfa2632330a5fb9de8d9c06f2607576",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/event_information/56th-Singapore-National-Age-Group-Swimming-Cships-2026-5th-January-2026.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-1-session-1.pdf",
+      "filename": "56th-snag-juniors-2026-start-list-day-1-session-1.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 81295,
+      "sha256": "5565b755d4a0b8eb56b57ce41c5035fb46427833af664b3bd2b62c2585324a32",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-juniors-2026-start-list-day-1-session-1.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-2-session-2.pdf",
+      "filename": "56th-snag-juniors-2026-start-list-day-2-session-2.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 420145,
+      "sha256": "2cdb856a03636fc23d8ab77a98176bea0b077b25886cf5cb6f8c9dc3f5e250c1",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-juniors-2026-start-list-day-2-session-2.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-2-session-3.pdf",
+      "filename": "56th-snag-juniors-2026-start-list-day-2-session-3.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 433224,
+      "sha256": "453fdfb2dfafebd5d90952215e80b33ef9869c27514a277a721905fa212a3450",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-juniors-2026-start-list-day-2-session-3.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-3-session-4.pdf",
+      "filename": "56th-snag-juniors-2026-start-list-day-3-session-4.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 515561,
+      "sha256": "20d3363c63b05a7cdc707bbe4dfa14382db9fca4a0cde9942a27bfc1b339bace",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-juniors-2026-start-list-day-3-session-4.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-start-list-day-3-session-5.pdf",
+      "filename": "56th-snag-juniors-2026-start-list-day-3-session-5.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 472203,
+      "sha256": "7b09b45935ebe848a6e5ceb8a770d2352de48785773e7ee78c3035b31f281c10",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-juniors-2026-start-list-day-3-session-5.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-1-session-1.pdf",
+      "filename": "56th-snag-juniors-2026-results-day-1-session-1.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 200772,
+      "sha256": "94826107b933cbb02be99ea6bfb4ad477a34e9f05b4593f34ec21cec319a6b95",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-juniors-2026-results-day-1-session-1.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-2-session-2.pdf",
+      "filename": "56th-snag-juniors-2026-results-day-2-session-2.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 163452,
+      "sha256": "55e6b483de344dbaaa83efbde7a12af9646d0b7776e29a8cfe76ec3555560b36",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-juniors-2026-results-day-2-session-2.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-day-2-session-3-full-results.pdf",
+      "filename": "56th-snag-juniors-2026-day-2-session-3-full-results.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 188737,
+      "sha256": "d3027392745bd96069e842ba88711b1c33130e4c8bec40309ed7ecc500f18a88",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-juniors-2026-day-2-session-3-full-results.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-3-session-4.pdf",
+      "filename": "56th-snag-juniors-2026-results-day-3-session-4.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 190318,
+      "sha256": "cadced7fcda937ac5eda2b0abad89e0bbdf4e1f69445791d04c0ee4b3b438412",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-juniors-2026-results-day-3-session-4.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-juniors-2026-results-day-3-session-5.pdf",
+      "filename": "56th-snag-juniors-2026-results-day-3-session-5.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 181708,
+      "sha256": "f740fe6a016542a83db30538d452dc0f97c61096d8ae261daa6cd393d4872c50",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-juniors-2026-results-day-3-session-5.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-Tally-with-overseas-teams-and-foreign-swimmers.pdf",
+      "filename": "Medal-Tally-with-overseas-teams-and-foreign-swimmers.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 103918,
+      "sha256": "45d73ecb8b4a3784cfed85d5861045fa3da8f2b5aad70e7eb5b8aee31fdac88b",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/medal_tally/Medal-Tally-with-overseas-teams-and-foreign-swimmers.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-tally-with-local-affiliates-including-their-foreign-swimmers.pdf",
+      "filename": "Medal-tally-with-local-affiliates-including-their-foreign-swimmers.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 100283,
+      "sha256": "bc4b27619e30e9a8b09ee7499e7a3d7d01ba6bf9ea60f3b9fff1701d5a809da0",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/medal_tally/Medal-tally-with-local-affiliates-including-their-foreign-swimmers.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/Medal-tally-with-for-local-affiliates-with-singaporean-swimmers-only.pdf",
+      "filename": "Medal-tally-with-for-local-affiliates-with-singaporean-swimmers-only.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 100502,
+      "sha256": "6ceadcc972ddb6a9e291932e46846d6d473eeb386acf6f36b2d6f7d36a7a83e4",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/medal_tally/Medal-tally-with-for-local-affiliates-with-singaporean-swimmers-only.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-1-session-1.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-1-session-1.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 501095,
+      "sha256": "00d8d2f9eec3b6f5d495a36fdaf767a27367b361a2fb17a06be082128116c8c6",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-1-session-1.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-1-session-2.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-1-session-2.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 48450,
+      "sha256": "fe40dafe9c01b786bc7736a19ad502125e0376b03510108372c4d3cb74864ced",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-1-session-2.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-2-session-3.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-2-session-3.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 552459,
+      "sha256": "24bbcfd12d8135870afdb5bbcdd14baaf1e00678fafdac09bedffe7ff25a9b5b",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-2-session-3.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-2-session-4-3.36pm.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-2-session-4-3.36pm.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 50505,
+      "sha256": "ebd79ab18548ed06642c64a17615f334b8c943662f94cec1fe38bd628cc043f7",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-2-session-4-3.36pm.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-3-session-5.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-3-session-5.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 385734,
+      "sha256": "910c69bbe066c696b66c3cd5f77710f069f32a220e485ca14fa27797a913b5bf",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-3-session-5.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-3-session-6.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-3-session-6.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 46807,
+      "sha256": "8f89de5ad1085a330e0ba4e11cd517011c4b0d6367942792d7fb7b7681553a5d",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-3-session-6.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-4-session-7.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-4-session-7.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 489327,
+      "sha256": "7113d795d3a3a28bfffd294a5665851742ea946d3ad4b066113fb4e34fae0c25",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-4-session-7.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-4-session-8.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-4-session-8.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 49113,
+      "sha256": "95641a50ff6f60f984d56730edcd5116c456218dc6a0da1d635e5744e753409a",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-4-session-8.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-5-session-9.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-5-session-9.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 542000,
+      "sha256": "56c4ebf64c042991d74c87df5984d439884aa83cfeddcc6e66bcf91719ce9030",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-5-session-9.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-5-session-10.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-5-session-10.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 50460,
+      "sha256": "1820b2e7a3a8e0677059a3894e2bc5bb852f9bc9a01aee4a264f247844c4feae",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-5-session-10.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-6-session-11.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-6-session-11.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 428276,
+      "sha256": "df8117375c4b67b9261c02237c480c3bf3dff556703252bb0aa80c80ac44dd8b",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-6-session-11.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-start-list-day-6-session-12-2.27pm.pdf",
+      "filename": "56th-snag-seniors-2026-start-list-day-6-session-12-2.27pm.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 46215,
+      "sha256": "ec23a6fab0868ec9f83f75c8f99f537c10161aafc554b364d419c74ad6a9d73f",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/start_list/56th-snag-seniors-2026-start-list-day-6-session-12-2.27pm.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-session-1.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-1-session-1.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 200707,
+      "sha256": "4fbeeac167c15ed4e5f03eb316b4d541cdd8384f91b19fe6b8ff273b32f68a7a",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-1-session-1.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-session-2.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-1-session-2.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 106456,
+      "sha256": "b7853547e954de41ed0ba214f303abec070766c3b248e0ab46fa78ba28dd7c44",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-1-session-2.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-session-3.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-2-session-3.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 217667,
+      "sha256": "bac70abfd60ccc8410a2c7361d26b6409af43f2711329612bd1e6b1c09817d7e",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-2-session-3.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-session-4.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-2-session-4.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 97103,
+      "sha256": "ebb2e4bd17f1a5279470c02c6168ffedb6ef9aee3389e6169215f73a622a264e",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-2-session-4.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-session-5.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-3-session-5.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 113339,
+      "sha256": "e615476e54358857cd7bba93801c27a90623af6e7eb2c8ba7d5c13c4960e076f",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-3-session-5.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-session-6.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-3-session-6.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 118777,
+      "sha256": "883b155a75521a9418c511907f0522c7278faf5a664390f7fc1d4079e557a7b5",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-3-session-6.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-session-7.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-4-session-7.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 183912,
+      "sha256": "0d9303af9798417d4b471d82ed6c4cb51516889a6f23b4054753dcf2f271134c",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-4-session-7.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-session-8.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-4-session-8.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 96524,
+      "sha256": "3b652475a7bff283f20f26e289e0579a0e6e23c2015f4fd61d13e7114bf34bfc",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-4-session-8.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-session-9.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-5-session-9.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 201523,
+      "sha256": "7fea85c89af1c711530c06872361e17a04f12d9ccfd6e2a1b8bd527d287e31a4",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-5-session-9.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-session-10.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-5-session-10.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 123262,
+      "sha256": "31130eae788dc71e510e8e7b2df2011903f5447a95378c4082b5bc4698427dd7",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-5-session-10.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-session-11.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-6-session-11.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 178676,
+      "sha256": "270c058d89b2a645116d64fdcb0d2745953746fe91771b41ab0ff4637dac37bd",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-6-session-11.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-session-12.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-6-session-12.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 119441,
+      "sha256": "74b96797499dd6a46dc8ce3ea6b4a0001374489d039d747b219551dffa17a1af",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/overall_results/56th-snag-seniors-2026-results-day-6-session-12.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-1-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-1-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 107220,
+      "sha256": "29dcb59d92a626a659298c0faac6c78ada6f011e6d276366a17a5aeee34152d7",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-1-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-2-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-2-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 98173,
+      "sha256": "e409100a5efb4f1b015240d229a8f808f8da0410b3dde55b2f297a9ed13362a7",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-2-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-3-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-3-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 120190,
+      "sha256": "de86841f625bf2dd51cc785b1e428100fdaa607cb1c73f947fe96699ed810bba",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-3-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-4-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-4-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 97849,
+      "sha256": "56de2e9e0fec011e1ece59b8f451c608c7e7c02e048ef3b50497e7ab3d1bae11",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-4-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-5-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-5-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 124090,
+      "sha256": "32c291c2609c7654938b674439a3b7ad63b6c0202373de525e13a050f14c2803",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-5-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-snag-seniors-2026-results-day-6-finals-by-age-group.pdf",
+      "filename": "56th-snag-seniors-2026-results-day-6-finals-by-age-group.pdf",
+      "category": "age_group_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 120672,
+      "sha256": "dfe33a8c73576021b02f54efdcf966fd4f5a6dac991a2ae7da250587b7e5e95c",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/age_group_results/56th-snag-seniors-2026-results-day-6-finals-by-age-group.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-SNAG-Seniors-2026-Medal-tally-with-overseas-teams-and-affilaites-foreign-swimmers.pdf",
+      "filename": "56th-SNAG-Seniors-2026-Medal-tally-with-overseas-teams-and-affilaites-foreign-swimmers.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 112889,
+      "sha256": "bf5981283b5df5c2e71d34a614eeae4c97926cc92c46380405f5eca863ba1559",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/medal_tally/56th-SNAG-Seniors-2026-Medal-tally-with-overseas-teams-and-affilaites-foreign-swimmers.pdf"
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2026/03/56th-SNAG-Seniors-2026-Medal-tally-with-singaporean-swimmers-only.pdf",
+      "filename": "56th-SNAG-Seniors-2026-Medal-tally-with-singaporean-swimmers-only.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 100560,
+      "sha256": "bf125d84107e41cc5d75ba5c79a70f158236bfbba39617d94358ec4367c3e68b",
+      "saved": "raw-data/sg-aquatics/56th-snag-2026-full/medal_tally/56th-SNAG-Seniors-2026-Medal-tally-with-singaporean-swimmers-only.pdf"
+    }
+  ]
+}

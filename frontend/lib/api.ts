@@ -428,6 +428,99 @@ export async function getProgression(
 }
 
 // ---------------------------------------------------------------------------
+// Admin source monitoring
+// ---------------------------------------------------------------------------
+
+export interface AdminMonitorRun {
+  id: number;
+  sourceRuleId: number;
+  triggerType: string;
+  triggeredBy: string | null;
+  adapterVersion: string | null;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  eventsDiscovered: number;
+  eventsWithResults: number;
+  addedEvents: number;
+  updatedEvents: number;
+  unchangedEvents: number;
+  absentFromIndexEvents: number;
+  addedDocuments: number;
+  updatedDocuments: number;
+  unchangedDocuments: number;
+  actionRequiredCount: number;
+  errorMessage: string | null;
+  summary: Record<string, unknown>;
+}
+
+export interface AdminSourceRule {
+  id: number;
+  name: string;
+  indexUrl: string;
+  enabled: boolean;
+  adapterType: string | null;
+  scheduleLabel: string;
+  lastTriggerLabel: string;
+  autoImportPolicy: string;
+  autoImportLabel: string;
+  policyLabels: string[];
+  lastRun: AdminMonitorRun | null;
+  lastStatus: string | null;
+  lastFinishedAt: string | null;
+  eventsDiscovered: number;
+  eventsWithResults: number;
+  actionRequiredCount: number;
+  categoriesToArchive: string[];
+  categoriesToPreview: string[];
+  categoriesAllowedForImport: string[];
+}
+
+export interface AdminSourceSite {
+  id: number;
+  name: string;
+  baseUrl: string;
+  adapterType: string;
+  isEnabled: boolean;
+  rules: AdminSourceRule[];
+}
+
+export interface AdminSourceEvent {
+  id: number;
+  sourceRuleId: number;
+  title: string;
+  pageTitle: string | null;
+  url: string;
+  sourceYear: string | null;
+  readinessStatus: string;
+  isCurrentlyListed: boolean;
+  pdfCount: number;
+  resultPdfCount: number;
+  categoryCounts: Record<string, number>;
+  documentCount: number;
+  firstSeenAt: string;
+  lastSeenInIndexAt: string | null;
+  lastCheckedAt: string | null;
+  lastChangedAt: string | null;
+}
+
+export async function listAdminSources(): Promise<{ data: AdminSourceSite[] }> {
+  return apiFetch("/admin/sources");
+}
+
+export async function listAdminSourceEvents(): Promise<{ data: AdminSourceEvent[] }> {
+  return apiFetch("/admin/source-events");
+}
+
+export async function listAdminMonitorRuns(): Promise<{ data: AdminMonitorRun[] }> {
+  return apiFetch("/admin/monitor-runs");
+}
+
+export async function runSourceDiscoveryPreview(ruleId: number): Promise<{ data: AdminMonitorRun }> {
+  return apiFetch(`/admin/source-rules/${ruleId}/run-discovery-preview`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard stats (convenience)
 // ---------------------------------------------------------------------------
 

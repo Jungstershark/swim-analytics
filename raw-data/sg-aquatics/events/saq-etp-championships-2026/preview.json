@@ -1,0 +1,28 @@
+{
+  "manifest": "raw-data/sg-aquatics/events/saq-etp-championships-2026/manifest.json",
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/11thsnsc-25m-2025/saq-etp-championships-2026/",
+  "totals": {
+    "files": 1,
+    "events": 15,
+    "individual_results": 410,
+    "relay_results": 0,
+    "failed": 0
+  },
+  "files": [
+    {
+      "filename": "saq-etp-championships-2026-full-results.pdf",
+      "path": "raw-data/sg-aquatics/events/saq-etp-championships-2026/by-sha/f9/f92eb8550a009b487fc97ade5d69fbec237169b88186f661a273a1db946bcd39.pdf",
+      "sha256": "f92eb8550a009b487fc97ade5d69fbec237169b88186f661a273a1db946bcd39",
+      "status": "ok",
+      "parser_format": "hytek",
+      "parser_version": "hytek-v1",
+      "detection_confidence": 100,
+      "detection_reason": "legacy can_parse match",
+      "confidence_percent": 100,
+      "events": 15,
+      "individual_results": 410,
+      "relay_results": 0,
+      "error": null
+    }
+  ]
+}

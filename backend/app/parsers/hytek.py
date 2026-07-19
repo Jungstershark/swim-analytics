@@ -129,8 +129,9 @@ class ParsedMeet:
 # ---------------------------------------------------------------------------
 
 # Page header: "56th SNAG Seniors - 17/3/2026 to 22/3/2026"
+# Single-day meets: "SAQ Emerging Talents Championships 2026 - 31/5/2026"
 RE_MEET_HEADER = re.compile(
-    r"^(.+?)\s*-\s*(\d{1,2}/\d{1,2}/\d{4}\s+to\s+\d{1,2}/\d{1,2}/\d{4})$"
+    r"^(.+?)\s*-\s*(\d{1,2}/\d{1,2}/\d{4}(?:\s+to\s+\d{1,2}/\d{1,2}/\d{4})?)$"
 )
 
 # Session line: "Results - Day 1 Session 1"

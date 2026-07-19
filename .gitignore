@@ -26,6 +26,7 @@ Thumbs.db
 
 # Data (test PDFs and parsed outputs)
 data/
+raw-data/**/*.pdf
 
 # Misc
 *.log

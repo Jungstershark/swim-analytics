@@ -6,10 +6,269 @@ Models: Swimmer, Meet, Result, RelayResult, RelayLeg
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+class SourceSite(Base):
+    __tablename__ = "SourceSite"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    baseUrl: Mapped[str] = mapped_column(String, nullable=False)
+    adapterType: Mapped[str] = mapped_column(String, nullable=False)
+    isEnabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    rules: Mapped[list["SourceRule"]] = relationship(back_populates="source_site", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("adapterType", "baseUrl", name="SourceSite_adapter_baseUrl_uq"),
+        Index("SourceSite_adapterType_idx", "adapterType"),
+    )
+
+
+class SourceRule(Base):
+    __tablename__ = "SourceRule"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sourceSiteId: Mapped[int] = mapped_column(Integer, ForeignKey("SourceSite.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    indexUrl: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    cadencePolicy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activeWindowPolicy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    staleWindowPolicy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    categoriesToArchive: Mapped[str | None] = mapped_column(Text, nullable=True)
+    categoriesToPreview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    categoriesAllowedForImport: Mapped[str | None] = mapped_column(Text, nullable=True)
+    autoImportPolicy: Mapped[str] = mapped_column(String, nullable=False, default="preview_only")
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    source_site: Mapped["SourceSite"] = relationship(back_populates="rules")
+    source_events: Mapped[list["SourceEvent"]] = relationship(back_populates="source_rule", cascade="all, delete-orphan")
+    monitor_runs: Mapped[list["MonitorRun"]] = relationship(back_populates="source_rule", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("sourceSiteId", "indexUrl", name="SourceRule_site_indexUrl_uq"),
+        Index("SourceRule_enabled_idx", "enabled"),
+    )
+
+
+class SourceEvent(Base):
+    __tablename__ = "SourceEvent"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sourceRuleId: Mapped[int] = mapped_column(Integer, ForeignKey("SourceRule.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    pageTitle: Mapped[str | None] = mapped_column(String, nullable=True)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    sourceYear: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceDateLabel: Mapped[str | None] = mapped_column(String, nullable=True)
+    readinessStatus: Mapped[str] = mapped_column(String, nullable=False)
+    statusReason: Mapped[str | None] = mapped_column(String, nullable=True)
+    isCurrentlyListed: Mapped[bool] = mapped_column(Boolean, default=True)
+    pdfCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    resultPdfCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    categoryCountsJson: Mapped[str | None] = mapped_column(Text, nullable=True)
+    firstSeenAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lastSeenInIndexAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastCheckedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastChangedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastErrorMessage: Mapped[str | None] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    source_rule: Mapped["SourceRule"] = relationship(back_populates="source_events")
+    documents: Mapped[list["SourceEventDocument"]] = relationship(back_populates="source_event", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("sourceRuleId", "url", name="SourceEvent_rule_url_uq"),
+        Index("SourceEvent_rule_status_idx", "sourceRuleId", "readinessStatus"),
+    )
+
+
+class SourceEventDocument(Base):
+    __tablename__ = "SourceEventDocument"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sourceEventId: Mapped[int] = mapped_column(Integer, ForeignKey("SourceEvent.id"), nullable=False)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    firstSeenAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lastSeenAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastCheckedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastHashSha256: Mapped[str | None] = mapped_column(String, nullable=True)
+    lastHashCheckedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    isCurrentlyListed: Mapped[bool] = mapped_column(Boolean, default=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    source_event: Mapped["SourceEvent"] = relationship(back_populates="documents")
+
+    __table_args__ = (
+        UniqueConstraint("sourceEventId", "url", name="SourceEventDocument_identity_uq"),
+        Index("SourceEventDocument_event_category_idx", "sourceEventId", "category"),
+    )
+
+
+class MonitorRun(Base):
+    __tablename__ = "MonitorRun"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sourceRuleId: Mapped[int] = mapped_column(Integer, ForeignKey("SourceRule.id"), nullable=False)
+    triggerType: Mapped[str] = mapped_column(String, nullable=False, default="manual_api")
+    triggeredBy: Mapped[str | None] = mapped_column(String, nullable=True)
+    adapterVersion: Mapped[str | None] = mapped_column(String, nullable=True)
+    indexUrlSnapshot: Mapped[str | None] = mapped_column(String, nullable=True)
+    ruleConfigSnapshotJson: Mapped[str | None] = mapped_column(Text, nullable=True)
+    startedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finishedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")
+    eventsDiscovered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    eventsWithResults: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    addedEvents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updatedEvents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unchangedEvents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    absentFromIndexEvents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    addedDocuments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updatedDocuments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unchangedDocuments: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actionRequiredCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errorMessage: Mapped[str | None] = mapped_column(String, nullable=True)
+    summaryJson: Mapped[str | None] = mapped_column(Text, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    source_rule: Mapped["SourceRule"] = relationship(back_populates="monitor_runs")
+
+    __table_args__ = (
+        Index("MonitorRun_rule_status_idx", "sourceRuleId", "status"),
+        Index("MonitorRun_startedAt_idx", "startedAt"),
+        Index(
+            "MonitorRun_one_running_per_rule_uq",
+            "sourceRuleId",
+            unique=True,
+            sqlite_where=text("status = 'running'"),
+            postgresql_where=text("status = 'running'"),
+        ),
+    )
+
+
+class RawDocument(Base):
+    __tablename__ = "RawDocument"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    byteSize: Mapped[int] = mapped_column(Integer, nullable=False)
+    contentType: Mapped[str | None] = mapped_column(String, nullable=True)
+    storagePath: Mapped[str] = mapped_column(String, nullable=False)
+    originalFilename: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    isValidPdf: Mapped[bool] = mapped_column(Boolean, default=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    source_references: Mapped[list["SourceReference"]] = relationship(back_populates="raw_document", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("RawDocument_sha256_idx", "sha256"),
+        Index("RawDocument_category_idx", "category"),
+    )
+
+
+class SourceReference(Base):
+    __tablename__ = "SourceReference"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rawDocumentId: Mapped[int] = mapped_column(Integer, ForeignKey("RawDocument.id"), nullable=False)
+    sourceType: Mapped[str] = mapped_column(String, nullable=False)  # upload, sg-aquatics, manual, etc.
+    sourceLabel: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceUrl: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourcePageUrl: Mapped[str | None] = mapped_column(String, nullable=True)
+    filenameSeen: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceIdentity: Mapped[str] = mapped_column(String, nullable=False)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    raw_document: Mapped["RawDocument"] = relationship(back_populates="source_references")
+
+    __table_args__ = (
+        Index("SourceReference_rawDocumentId_idx", "rawDocumentId"),
+        Index("SourceReference_sourceType_idx", "sourceType"),
+        UniqueConstraint("rawDocumentId", "sourceIdentity", name="SourceReference_identity_uq"),
+    )
+
+
+class DocumentClassification(Base):
+    __tablename__ = "DocumentClassification"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rawDocumentId: Mapped[int] = mapped_column(Integer, ForeignKey("RawDocument.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    classifierVersion: Mapped[str] = mapped_column(String, nullable=False, default="filename-v1")
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    isCurrent: Mapped[bool] = mapped_column(Boolean, default=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("DocumentClassification_rawDocumentId_idx", "rawDocumentId"),
+        Index("DocumentClassification_category_idx", "category"),
+    )
+
+
+class IngestionRun(Base):
+    __tablename__ = "IngestionRun"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String, nullable=False)  # preview, append, replace, rebuild
+    inputScope: Mapped[str | None] = mapped_column(String, nullable=True)
+    parserVersion: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")
+    recordsInserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recordsUpdated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicatesSkipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    validationErrors: Mapped[str | None] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("IngestionRun_mode_idx", "mode"),
+        Index("IngestionRun_status_idx", "status"),
+    )
+
+
+class ParseJob(Base):
+    __tablename__ = "ParseJob"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rawDocumentId: Mapped[int] = mapped_column(Integer, ForeignKey("RawDocument.id"), nullable=False)
+    parserName: Mapped[str] = mapped_column(String, nullable=False)
+    parserVersion: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    confidenceScore: Mapped[int | None] = mapped_column(Integer, nullable=True)  # percentage 0-100
+    confidencePassed: Mapped[bool] = mapped_column(Boolean, default=False)
+    eventsCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    individualResultsCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    relayResultsCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unmatchedLinesCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errorMessage: Mapped[str | None] = mapped_column(String, nullable=True)
+    parsedArtifactPath: Mapped[str | None] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    raw_document: Mapped["RawDocument"] = relationship()
+
+    __table_args__ = (
+        Index("ParseJob_rawDocumentId_idx", "rawDocumentId"),
+        Index("ParseJob_parser_idx", "parserName", "parserVersion"),
+        Index("ParseJob_status_idx", "status"),
+    )
 
 
 class Swimmer(Base):
@@ -75,6 +334,11 @@ class Result(Base):
     round: Mapped[str | None] = mapped_column(String, nullable=True)  # "Prelim", "Final", "Timed Final", "Semifinal"
     swimDate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Actual date of this swim
     contentHash: Mapped[str | None] = mapped_column(String, nullable=True)  # SHA-256 for deduplication
+    sourceDocumentSha256: Mapped[str | None] = mapped_column(String, nullable=True)
+    parseJobId: Mapped[int | None] = mapped_column(Integer, ForeignKey("ParseJob.id"), nullable=True)
+    ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)
+    parserVersion: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceEventNumber: Mapped[str | None] = mapped_column(String, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -113,6 +377,11 @@ class RelayResult(Base):
     splits: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON string
     reactionTime: Mapped[str | None] = mapped_column(String, nullable=True)
     contentHash: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceDocumentSha256: Mapped[str | None] = mapped_column(String, nullable=True)
+    parseJobId: Mapped[int | None] = mapped_column(Integer, ForeignKey("ParseJob.id"), nullable=True)
+    ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)
+    parserVersion: Mapped[str | None] = mapped_column(String, nullable=True)
+    sourceEventNumber: Mapped[str | None] = mapped_column(String, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

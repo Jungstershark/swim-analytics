@@ -16,10 +16,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import tempfile
 import zipfile
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -30,9 +32,17 @@ from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from .database import Base, engine, get_db
-from .models import Meet, RelayLeg, RelayResult, Result, Swimmer
+from .ingestion import classify_document, is_import_eligible_document, record_parse_job, record_raw_document, start_ingestion_run
+from .models import IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
 from .parsers.base import detect_and_parse
 from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
+from .source_monitoring import (
+    SourceMonitorAlreadyRunningError,
+    SourceRuleDisabledError,
+    SourceRuleNotFoundError,
+    discover_sgaquatics_events,
+    run_discovery_preview,
+)
 from .schemas import (
     CombinedResultItem,
     CombinedResultsResponse,
@@ -69,6 +79,18 @@ from .schemas import (
 # App setup
 # ---------------------------------------------------------------------------
 
+PARSER_VERSION = "hytek-v1"
+RAW_ARCHIVE_ROOT = Path(os.getenv("SWIM_RAW_ARCHIVE_ROOT", "data/raw-documents"))
+
+
+@dataclass
+class UploadedPdf:
+    path: Path
+    filename: str
+    file_bytes: bytes
+    content_type: str | None = "application/pdf"
+
+
 app = FastAPI(
     title="Swim Analytics API",
     description="SSA Swim Meet Results Parsing & Analytics Platform",
@@ -91,7 +113,13 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    Base.metadata.create_all(bind=engine)
+    """Optional local-dev schema bootstrap.
+
+    Production/release schema changes are Alembic-backed. Keep startup read-only
+    unless explicitly requested for throwaway local/dev databases.
+    """
+    if os.getenv("SWIM_ANALYTICS_CREATE_ALL_ON_STARTUP", "").lower() in {"1", "true", "yes"}:
+        Base.metadata.create_all(bind=engine)
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +144,12 @@ def _splits_to_json(splits) -> Optional[str]:
 
 
 def _time_type_to_round(time_type: str) -> str:
-    """Convert parser time_type to round label."""
+    """Convert parser time_type to round label.
+
+    Domain/display assumption: these labels drive meet detail and result-table
+    grouping. Do not rename/reorder them as a cosmetic cleanup without checking
+    how finals/prelims/timed-finals should appear to swim users.
+    """
     mapping = {
         "Prelim Time": "Prelim",
         "Finals Time": "Final",
@@ -278,8 +311,8 @@ def _result_to_detail(r: Result) -> ResultDetail:
 
 @app.post("/api/upload/preview", response_model=UploadPreviewResponse)
 def upload_preview(file: UploadFile = File(...)):
-    """Parse PDF/ZIP and return preview without inserting to DB."""
-    pdf_paths = _extract_pdfs_from_upload(file)
+    """Parse PDF/ZIP and return preview without inserting to DB or archival tables."""
+    uploaded_pdfs = _extract_pdfs_from_upload(file)
 
     event_groups: list[PreviewEventGroup] = []
     total_results = 0
@@ -291,15 +324,19 @@ def upload_preview(file: UploadFile = File(...)):
     last_confidence = None
 
     try:
-        for pdf_path in pdf_paths:
+        for uploaded_pdf in uploaded_pdfs:
+            category = classify_document(uploaded_pdf.filename)
+            if not is_import_eligible_document(category):
+                uploaded_pdf.path.unlink(missing_ok=True)
+                continue
             try:
-                parsed, confidence, fmt = detect_and_parse(pdf_path)
+                parsed, confidence, fmt = detect_and_parse(uploaded_pdf.path)
                 parser_format = fmt
                 last_confidence = confidence
             except Exception:
                 continue
             finally:
-                pdf_path.unlink(missing_ok=True)
+                uploaded_pdf.path.unlink(missing_ok=True)
 
             if not meet_name:
                 meet_name = parsed.meet_name
@@ -348,10 +385,7 @@ def upload_preview(file: UploadFile = File(...)):
 
                 total_results += len(rows)
                 # Preview sample: first 10 + last 3 for spot-checking edge cases
-                if len(rows) > 13:
-                    sample = rows[:10] + rows[-3:]
-                else:
-                    sample = rows
+                sample = rows[:10] + rows[-3:] if len(rows) > 13 else rows
                 event_groups.append(PreviewEventGroup(
                     event=ev.event_name,
                     round=round_name,
@@ -359,8 +393,8 @@ def upload_preview(file: UploadFile = File(...)):
                     results=sample,
                 ))
     finally:
-        for p in pdf_paths:
-            p.unlink(missing_ok=True)
+        for p in uploaded_pdfs:
+            p.path.unlink(missing_ok=True)
 
     if last_confidence is None:
         raise HTTPException(status_code=422, detail="No valid PDFs could be parsed")
@@ -394,33 +428,53 @@ def _parse_pdf_to_temp(file_bytes: bytes, suffix: str = ".pdf") -> Path:
         return Path(tmp.name)
 
 
-def _extract_pdfs_from_upload(file: UploadFile) -> list[Path]:
-    """Extract PDF path(s) from an uploaded file (PDF or ZIP)."""
-    filename = (file.filename or "").lower()
+def _extract_pdfs_from_upload(file: UploadFile) -> list[UploadedPdf]:
+    """Extract PDF(s) from an uploaded file (PDF or ZIP), preserving source metadata."""
+    original_filename = file.filename or "upload"
+    filename = original_filename.lower()
     file_bytes = file.file.read()
 
     if filename.endswith(".zip"):
         tmp_zip = _parse_pdf_to_temp(file_bytes, suffix=".zip")
-        pdf_paths = []
+        pdfs: list[UploadedPdf] = []
         try:
             with zipfile.ZipFile(tmp_zip) as zf:
                 for name in sorted(zf.namelist()):
-                    if name.lower().endswith(".pdf") and not name.startswith("__MACOSX"):
-                        pdf_bytes = zf.read(name)
-                        pdf_paths.append(_parse_pdf_to_temp(pdf_bytes))
+                    safe_name = Path(name).name
+                    if name.startswith("__MACOSX") or not safe_name.lower().endswith(".pdf"):
+                        continue
+                    pdf_bytes = zf.read(name)
+                    pdfs.append(UploadedPdf(
+                        path=_parse_pdf_to_temp(pdf_bytes),
+                        filename=safe_name,
+                        file_bytes=pdf_bytes,
+                    ))
         finally:
             tmp_zip.unlink(missing_ok=True)
-        if not pdf_paths:
+        if not pdfs:
             raise HTTPException(status_code=400, detail="ZIP file contains no PDF files")
-        return pdf_paths
+        return pdfs
     elif filename.endswith(".pdf"):
-        return [_parse_pdf_to_temp(file_bytes)]
+        return [UploadedPdf(
+            path=_parse_pdf_to_temp(file_bytes),
+            filename=original_filename,
+            file_bytes=file_bytes,
+            content_type=file.content_type or "application/pdf",
+        )]
     else:
         raise HTTPException(status_code=400, detail="Only PDF or ZIP files are accepted")
 
 
 def _process_parsed_meet(
-    parsed, meet: Meet, swim_date: datetime, db: Session
+    parsed,
+    meet: Meet,
+    swim_date: datetime,
+    db: Session,
+    *,
+    raw_document: RawDocument | None = None,
+    parse_job: ParseJob | None = None,
+    ingestion_run: IngestionRun | None = None,
+    parser_version: str | None = None,
 ) -> tuple[int, int, int, list[str], list[dict]]:
     """Process parsed results into database. Returns (results_count, swimmers_created, duplicates_skipped, errors, duplicates)."""
     errors: list[str] = []
@@ -477,6 +531,11 @@ def _process_parsed_meet(
                 round=round_name,
                 swimDate=swim_date,
                 contentHash=content_hash,
+                sourceDocumentSha256=raw_document.sha256 if raw_document else None,
+                parseJobId=parse_job.id if parse_job else None,
+                ingestionRunId=ingestion_run.id if ingestion_run else None,
+                parserVersion=parser_version,
+                sourceEventNumber=event.event_number,
             )
             db.add(result)
             results_count += 1
@@ -519,6 +578,11 @@ def _process_parsed_meet(
                 splits=_splits_to_json(rr.splits),
                 reactionTime=rr.reaction_time,
                 contentHash=relay_hash,
+                sourceDocumentSha256=raw_document.sha256 if raw_document else None,
+                parseJobId=parse_job.id if parse_job else None,
+                ingestionRunId=ingestion_run.id if ingestion_run else None,
+                parserVersion=parser_version,
+                sourceEventNumber=event.event_number,
             )
             db.add(relay_result)
             db.flush()
@@ -564,7 +628,13 @@ def upload_results(
     replace: bool = Query(False, description="Delete all existing results for this meet before importing"),
     db: Session = Depends(get_db),
 ):
-    pdf_paths = _extract_pdfs_from_upload(file)
+    uploaded_pdfs = _extract_pdfs_from_upload(file)
+    ingestion_run = start_ingestion_run(
+        db,
+        mode="replace" if replace else "append",
+        input_scope=f"upload:{file.filename or 'upload'}",
+        parser_version=PARSER_VERSION,
+    )
 
     all_errors: list[str] = []
     all_duplicates: list[dict] = []
@@ -575,17 +645,88 @@ def upload_results(
     meet = None
 
     try:
-        for pdf_path in pdf_paths:
+        for uploaded_pdf in uploaded_pdfs:
+            raw_document = record_raw_document(
+                db,
+                file_bytes=uploaded_pdf.file_bytes,
+                filename=uploaded_pdf.filename,
+                source_type="user_upload",
+                source_label=file.filename or uploaded_pdf.filename,
+                archive_root=RAW_ARCHIVE_ROOT,
+                content_type=uploaded_pdf.content_type,
+            )
+            category = classify_document(uploaded_pdf.filename)
+            if not is_import_eligible_document(category):
+                reason = f"Skipped {uploaded_pdf.filename}: document type '{category}' is archived but not importable as swim results yet"
+                all_errors.append(reason)
+                record_parse_job(
+                    db,
+                    raw_document=raw_document,
+                    parser_name="hytek",
+                    parser_version=PARSER_VERSION,
+                    status="rejected",
+                    confidence_score=None,
+                    confidence_passed=False,
+                    events_count=0,
+                    individual_results_count=0,
+                    relay_results_count=0,
+                    unmatched_lines_count=0,
+                    error_message=reason,
+                )
+                uploaded_pdf.path.unlink(missing_ok=True)
+                continue
             try:
-                parsed, confidence, parser_format = detect_and_parse(pdf_path)
+                parsed, confidence, parser_format = detect_and_parse(uploaded_pdf.path)
             except ValueError as e:
-                all_errors.append(f"Unsupported format: {pdf_path.name}: {e}")
+                all_errors.append(f"Unsupported format: {uploaded_pdf.filename}: {e}")
+                record_parse_job(
+                    db,
+                    raw_document=raw_document,
+                    parser_name="unknown",
+                    parser_version=PARSER_VERSION,
+                    status="failed",
+                    confidence_score=None,
+                    confidence_passed=False,
+                    events_count=0,
+                    individual_results_count=0,
+                    relay_results_count=0,
+                    unmatched_lines_count=0,
+                    error_message=str(e),
+                )
                 continue
             except Exception as e:
-                all_errors.append(f"Failed to parse {pdf_path.name}: {e}")
+                all_errors.append(f"Failed to parse {uploaded_pdf.filename}: {e}")
+                record_parse_job(
+                    db,
+                    raw_document=raw_document,
+                    parser_name="unknown",
+                    parser_version=PARSER_VERSION,
+                    status="failed",
+                    confidence_score=None,
+                    confidence_passed=False,
+                    events_count=0,
+                    individual_results_count=0,
+                    relay_results_count=0,
+                    unmatched_lines_count=0,
+                    error_message=str(e),
+                )
                 continue
             finally:
-                pdf_path.unlink(missing_ok=True)
+                uploaded_pdf.path.unlink(missing_ok=True)
+
+            parse_job = record_parse_job(
+                db,
+                raw_document=raw_document,
+                parser_name=parser_format,
+                parser_version=PARSER_VERSION,
+                status="succeeded" if confidence.passed else "rejected",
+                confidence_score=confidence.score,
+                confidence_passed=confidence.passed,
+                events_count=len(parsed.events),
+                individual_results_count=parsed.total_results,
+                relay_results_count=parsed.total_relay_results,
+                unmatched_lines_count=len(confidence.unmatched_lines),
+            )
 
             # Reject low-confidence parses
             if not confidence.passed:
@@ -639,7 +780,16 @@ def upload_results(
                     all_errors.append(f"Replaced {deleted} existing results for this meet")
 
             # Process results from this PDF
-            rc, sc, dc, errs, dups = _process_parsed_meet(parsed, meet, swim_date, db)
+            rc, sc, dc, errs, dups = _process_parsed_meet(
+                parsed,
+                meet,
+                swim_date,
+                db,
+                raw_document=raw_document,
+                parse_job=parse_job,
+                ingestion_run=ingestion_run,
+                parser_version=PARSER_VERSION,
+            )
             total_results += rc
             total_swimmers += sc
             total_duplicates += dc
@@ -647,12 +797,16 @@ def upload_results(
             all_errors.extend(errs)
             all_duplicates.extend(dups)
 
+        ingestion_run.status = "succeeded" if meet is not None else "failed"
+        ingestion_run.recordsInserted = total_results
+        ingestion_run.duplicatesSkipped = total_duplicates
+        ingestion_run.validationErrors = "; ".join(all_errors) if all_errors else None
         db.commit()
 
     finally:
         # Clean up any remaining temp files
-        for p in pdf_paths:
-            p.unlink(missing_ok=True)
+        for p in uploaded_pdfs:
+            p.path.unlink(missing_ok=True)
 
     if meet is None:
         raise HTTPException(status_code=422, detail="No valid PDFs could be parsed")
@@ -1138,6 +1292,166 @@ def get_progression(
         data_points=data_points,
         summary=summary,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin source monitoring
+# ---------------------------------------------------------------------------
+
+def _load_json_value(value: str | None):
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _policy_labels(rule: SourceRule) -> list[str]:
+    preview_categories = _load_json_value(rule.categoriesToPreview) or []
+    import_categories = _load_json_value(rule.categoriesAllowedForImport) or []
+    archive_categories = _load_json_value(rule.categoriesToArchive) or []
+    return [
+        "Schedule: Not configured",
+        "Cadence: Manual only",
+        "Active window: Manual preview only",
+        "Stale window: Manual preview only",
+        f"Automatic import: Disabled / {rule.autoImportPolicy}",
+        f"Preview catalog categories: {', '.join(preview_categories)}",
+        f"Future manual-import candidate categories: {', '.join(import_categories)}",
+        f"Document-link categories tracked: {', '.join(archive_categories)}",
+    ]
+
+
+def _source_rule_to_admin(rule: SourceRule, db: Session | None = None) -> dict:
+    last_run = None
+    if db is not None and rule.id is not None:
+        latest = (
+            db.query(MonitorRun)
+            .filter(MonitorRun.sourceRuleId == rule.id)
+            .order_by(MonitorRun.startedAt.desc())
+            .first()
+        )
+        if latest is not None:
+            last_run = _monitor_run_to_admin(latest)
+    return {
+        "id": rule.id,
+        "name": rule.name,
+        "indexUrl": rule.indexUrl,
+        "enabled": rule.enabled,
+        "adapterType": rule.source_site.adapterType if rule.source_site else None,
+        "scheduleLabel": "Not configured",
+        "lastTriggerLabel": (last_run or {}).get("triggerType", "Manual"),
+        "autoImportPolicy": rule.autoImportPolicy,
+        "autoImportLabel": f"Disabled / {rule.autoImportPolicy}",
+        "policyLabels": _policy_labels(rule),
+        "lastRun": last_run,
+        "lastStatus": (last_run or {}).get("status"),
+        "lastFinishedAt": (last_run or {}).get("finishedAt"),
+        "eventsDiscovered": (last_run or {}).get("eventsDiscovered", 0),
+        "eventsWithResults": (last_run or {}).get("eventsWithResults", 0),
+        "actionRequiredCount": (last_run or {}).get("actionRequiredCount", 0),
+        "cadencePolicy": _load_json_value(rule.cadencePolicy),
+        "activeWindowPolicy": _load_json_value(rule.activeWindowPolicy),
+        "staleWindowPolicy": _load_json_value(rule.staleWindowPolicy),
+        "categoriesToArchive": _load_json_value(rule.categoriesToArchive) or [],
+        "categoriesToPreview": _load_json_value(rule.categoriesToPreview) or [],
+        "categoriesAllowedForImport": _load_json_value(rule.categoriesAllowedForImport) or [],
+    }
+
+
+def _source_event_to_admin(event: SourceEvent) -> dict:
+    return {
+        "id": event.id,
+        "sourceRuleId": event.sourceRuleId,
+        "title": event.title,
+        "pageTitle": event.pageTitle,
+        "url": event.url,
+        "sourceYear": event.sourceYear,
+        "readinessStatus": event.readinessStatus,
+        "isCurrentlyListed": event.isCurrentlyListed,
+        "pdfCount": event.pdfCount,
+        "resultPdfCount": event.resultPdfCount,
+        "categoryCounts": _load_json_value(event.categoryCountsJson) or {},
+        "documentCount": len(event.documents),
+        "firstSeenAt": event.firstSeenAt,
+        "lastSeenInIndexAt": event.lastSeenInIndexAt,
+        "lastCheckedAt": event.lastCheckedAt,
+        "lastChangedAt": event.lastChangedAt,
+    }
+
+
+def _monitor_run_to_admin(run: MonitorRun) -> dict:
+    return {
+        "id": run.id,
+        "sourceRuleId": run.sourceRuleId,
+        "triggerType": run.triggerType,
+        "triggeredBy": run.triggeredBy,
+        "adapterVersion": run.adapterVersion,
+        "status": run.status,
+        "startedAt": run.startedAt,
+        "finishedAt": run.finishedAt,
+        "eventsDiscovered": run.eventsDiscovered,
+        "eventsWithResults": run.eventsWithResults,
+        "addedEvents": run.addedEvents,
+        "updatedEvents": run.updatedEvents,
+        "unchangedEvents": run.unchangedEvents,
+        "absentFromIndexEvents": run.absentFromIndexEvents,
+        "addedDocuments": run.addedDocuments,
+        "updatedDocuments": run.updatedDocuments,
+        "unchangedDocuments": run.unchangedDocuments,
+        "actionRequiredCount": run.actionRequiredCount,
+        "errorMessage": run.errorMessage,
+        "summary": _load_json_value(run.summaryJson) or {},
+    }
+
+
+@app.get("/api/admin/sources")
+def admin_list_sources(db: Session = Depends(get_db)):
+    sites = db.query(SourceSite).options(joinedload(SourceSite.rules)).order_by(SourceSite.name).all()
+    return {
+        "data": [
+            {
+                "id": site.id,
+                "name": site.name,
+                "baseUrl": site.baseUrl,
+                "adapterType": site.adapterType,
+                "isEnabled": site.isEnabled,
+                "rules": [_source_rule_to_admin(rule, db=db) for rule in site.rules],
+            }
+            for site in sites
+        ]
+    }
+
+
+@app.get("/api/admin/source-events")
+def admin_list_source_events(db: Session = Depends(get_db)):
+    events = (
+        db.query(SourceEvent)
+        .options(joinedload(SourceEvent.documents))
+        .order_by(SourceEvent.isCurrentlyListed.desc(), SourceEvent.sourceYear.desc(), SourceEvent.title)
+        .all()
+    )
+    return {"data": [_source_event_to_admin(event) for event in events]}
+
+
+@app.get("/api/admin/monitor-runs")
+def admin_list_monitor_runs(db: Session = Depends(get_db)):
+    runs = db.query(MonitorRun).order_by(MonitorRun.startedAt.desc()).limit(50).all()
+    return {"data": [_monitor_run_to_admin(run) for run in runs]}
+
+
+@app.post("/api/admin/source-rules/{rule_id}/run-discovery-preview")
+def admin_run_discovery_preview(rule_id: int, db: Session = Depends(get_db)):
+    try:
+        run = run_discovery_preview(db, rule_id, discover=discover_sgaquatics_events)
+    except SourceRuleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SourceRuleDisabledError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SourceMonitorAlreadyRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"data": _monitor_run_to_admin(run)}
 
 
 # ---------------------------------------------------------------------------
