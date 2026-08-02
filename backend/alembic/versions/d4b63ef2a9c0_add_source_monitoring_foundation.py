@@ -55,29 +55,33 @@ def upgrade() -> None:
     )
     op.create_index('SourceRule_enabled_idx', 'SourceRule', ['enabled'])
 
+    # SQLAlchemy creates these table/column names as quoted mixed-case
+    # identifiers on PostgreSQL. Keep explicit seed SQL quoted too; otherwise
+    # PostgreSQL folds SourceSite/baseUrl/etc. to lowercase and the migration
+    # fails with relation/column-not-found errors.
     op.execute("""
-        INSERT INTO SourceSite (name, baseUrl, adapterType, isEnabled)
-        VALUES ('SG Aquatics', 'https://www.sgaquatics.org.sg', 'sgaquatics_events', 1)
+        INSERT INTO "SourceSite" ("name", "baseUrl", "adapterType", "isEnabled")
+        VALUES ('SG Aquatics', 'https://www.sgaquatics.org.sg', 'sgaquatics_events', true)
     """)
     op.execute("""
-        INSERT INTO SourceRule (
-            sourceSiteId,
-            name,
-            indexUrl,
-            enabled,
-            cadencePolicy,
-            activeWindowPolicy,
-            staleWindowPolicy,
-            categoriesToArchive,
-            categoriesToPreview,
-            categoriesAllowedForImport,
-            autoImportPolicy
+        INSERT INTO "SourceRule" (
+            "sourceSiteId",
+            "name",
+            "indexUrl",
+            "enabled",
+            "cadencePolicy",
+            "activeWindowPolicy",
+            "staleWindowPolicy",
+            "categoriesToArchive",
+            "categoriesToPreview",
+            "categoriesAllowedForImport",
+            "autoImportPolicy"
         )
         SELECT
-            id,
+            "id",
             'SG Aquatics Swimming Events',
             'https://www.sgaquatics.org.sg/swimming/events/event-results/',
-            1,
+            true,
             '{"cadence":"manual_only","schedule":"not_configured"}',
             '{"mode":"manual_preview_only"}',
             '{"mode":"manual_preview_only"}',
@@ -85,9 +89,9 @@ def upgrade() -> None:
             '["overall_results","other_pdf"]',
             '["overall_results","other_pdf"]',
             'preview_only'
-        FROM SourceSite
-        WHERE adapterType = 'sgaquatics_events'
-          AND baseUrl = 'https://www.sgaquatics.org.sg'
+        FROM "SourceSite"
+        WHERE "adapterType" = 'sgaquatics_events'
+          AND "baseUrl" = 'https://www.sgaquatics.org.sg'
     """)
 
     op.create_table(
