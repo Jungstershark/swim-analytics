@@ -221,6 +221,265 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Browser read models — Slice 3 longitudinal browser foundation
+// ---------------------------------------------------------------------------
+
+export interface BrowserWarning {
+  type: string;
+  severity: "info" | "warning" | "error" | string;
+  entity_kind?: string;
+  entity_id?: number;
+  message: string;
+  count?: number;
+  sample_rows?: Record<string, unknown>[];
+  source_fields?: string[];
+}
+
+export interface BrowserSourceInfo {
+  document_sha256: string | null;
+  parse_job_id: number | null;
+  source_scope: "result" | "parent_relay_result" | string;
+}
+
+export interface BrowserMeetBrief {
+  id: number;
+  name: string;
+  date: string | null;
+  end_date: string | null;
+  location: string | null;
+}
+
+export interface BrowserSwimmerBrief {
+  id: number;
+  name: string;
+  age: number | null;
+  team: string | null;
+}
+
+export interface BrowserEventGroup {
+  event_key: string;
+  meet_id: number;
+  source_event_number: string | null;
+  event_label: string;
+  normalization_status: string;
+  derived: boolean;
+  rounds: string[];
+  swim_dates: string[];
+  individual_count: number;
+  relay_count: number;
+  total_rows: number;
+}
+
+export interface BrowserOverview {
+  counts: {
+    meets: number;
+    swimmers: number;
+    individual_results: number;
+    relay_results: number;
+    raw_documents: number;
+    source_references: number;
+  };
+  latest_meets: BrowserMeetBrief[];
+  top_events: { event_label: string; individual_count: number }[];
+  source_summary: {
+    missing_individual_result_source_count: number;
+    missing_relay_result_source_count: number;
+  };
+}
+
+export interface BrowserSwimmerListItem extends BrowserSwimmerBrief {
+  individual_result_count: number;
+  relay_result_count: number;
+  meet_count: number;
+  event_count: number;
+  latest_meet: BrowserMeetBrief | null;
+  warning_count: number;
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserSwimmerListParams {
+  page?: number;
+  limit?: number;
+  q?: string;
+  team?: string;
+  min_results?: number;
+  has_warnings?: boolean;
+  sort?: "name" | "team" | "result_count" | "latest_meet";
+  order?: "asc" | "desc";
+}
+
+export interface BrowserPersonalBest {
+  event: string;
+  time: string | null;
+  time_in_seconds: number;
+  meet: BrowserMeetBrief | null;
+  date: string | null;
+  round: string | null;
+}
+
+export interface BrowserIndividualRow {
+  row_type: "individual";
+  id: number;
+  event_key: string;
+  event_label: string;
+  round: string | null;
+  swim_date: string | null;
+  placement: number | null;
+  time: string | null;
+  seed_time: string | null;
+  is_dq: boolean;
+  dq_code: string | null;
+  dq_description: string | null;
+  is_guest: boolean;
+  qualifier: string | null;
+  swimmer: BrowserSwimmerBrief | null;
+  meet: BrowserMeetBrief | null;
+  source: BrowserSourceInfo;
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserRelayLeg {
+  leg_number: number;
+  swimmer_id: number | null;
+  swimmer_name: string;
+  age: number | null;
+  gender: string | null;
+  split_time: string | null;
+  reaction_time: string | null;
+  matched_by: string;
+  identity_match_confidence: string;
+}
+
+export interface BrowserRelayRow {
+  row_type: "relay";
+  id: number;
+  event_key: string;
+  event_label: string;
+  round: string | null;
+  swim_date: string | null;
+  placement: number | null;
+  time: string | null;
+  seed_time: string | null;
+  is_dq: boolean;
+  team_name: string;
+  relay_letter: string | null;
+  is_exhibition: boolean;
+  legs: BrowserRelayLeg[];
+  meet: BrowserMeetBrief | null;
+  source: BrowserSourceInfo;
+  warnings: BrowserWarning[];
+}
+
+export type BrowserEventRow = BrowserIndividualRow | BrowserRelayRow;
+
+export interface BrowserSwimmerDetail {
+  swimmer: BrowserSwimmerBrief;
+  stats: {
+    individual_result_count: number;
+    relay_result_count: number;
+    meet_count: number;
+    event_count: number;
+    warning_count: number;
+  };
+  personal_bests: BrowserPersonalBest[];
+  event_history: {
+    event: string;
+    event_key: string;
+    derived: boolean;
+    normalization_status: string;
+    result_count: number;
+    results: BrowserIndividualRow[];
+  }[];
+  relay_history: BrowserRelayRow[];
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserMeetDetail {
+  meet: BrowserMeetBrief;
+  event_groups: BrowserEventGroup[];
+  summary: {
+    event_group_count: number;
+    individual_result_count: number;
+    relay_result_count: number;
+    total_rows: number;
+  };
+  source_summary: { missing_source_count: number };
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserEventDetail {
+  event_group: BrowserEventGroup | null;
+  data: BrowserEventRow[];
+  pagination: PaginationInfo;
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserEventParams {
+  meet_id: number;
+  event_key: string;
+  page?: number;
+  limit?: number;
+  round?: string;
+  row_type?: "all" | "individual" | "relay";
+  order?: "place" | "time" | "name";
+}
+
+export interface BrowserDataQualityResponse {
+  summary: Record<string, number>;
+  data: BrowserWarning[];
+  pagination: PaginationInfo;
+}
+
+export async function getBrowserOverview(): Promise<BrowserOverview> {
+  return apiFetch("/browser/overview");
+}
+
+export async function listBrowserSwimmers(
+  params: BrowserSwimmerListParams = {}
+): Promise<PaginatedResponse<BrowserSwimmerListItem>> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.q) q.set("q", params.q);
+  if (params.team) q.set("team", params.team);
+  if (params.min_results !== undefined) q.set("min_results", String(params.min_results));
+  if (params.has_warnings !== undefined) q.set("has_warnings", String(params.has_warnings));
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
+  return apiFetch(`/browser/swimmers?${q}`);
+}
+
+export async function getBrowserSwimmer(id: number): Promise<BrowserSwimmerDetail> {
+  return apiFetch(`/browser/swimmers/${id}`);
+}
+
+export async function getBrowserMeet(id: number): Promise<BrowserMeetDetail> {
+  return apiFetch(`/browser/meets/${id}`);
+}
+
+export async function getBrowserEvent(params: BrowserEventParams): Promise<BrowserEventDetail> {
+  const q = new URLSearchParams({
+    meet_id: String(params.meet_id),
+    event_key: params.event_key,
+  });
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.round) q.set("round", params.round);
+  if (params.row_type) q.set("row_type", params.row_type);
+  if (params.order) q.set("order", params.order);
+  return apiFetch(`/browser/events?${q}`);
+}
+
+export async function getBrowserDataQuality(
+  params: { page?: number; limit?: number } = {}
+): Promise<BrowserDataQualityResponse> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  return apiFetch(`/browser/data-quality?${q}`);
+}
+
+// ---------------------------------------------------------------------------
 // Meets
 // ---------------------------------------------------------------------------
 

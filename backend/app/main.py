@@ -31,6 +31,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from .browser import (
+    browser_data_quality,
+    browser_event,
+    browser_meet,
+    browser_overview,
+    browser_swimmer_detail,
+    list_browser_swimmers,
+)
 from .database import Base, engine, get_db
 from .ingestion import classify_document, is_import_eligible_document, record_parse_job, record_raw_document, start_ingestion_run
 from .models import IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
@@ -845,6 +853,91 @@ def delete_meet(meet_id: int, db: Session = Depends(get_db)):
     db.delete(meet)
     db.commit()
     return {"success": True, "results_deleted": results_deleted, "relays_deleted": relays_deleted}
+
+
+# ---------------------------------------------------------------------------
+# Browser read-model APIs — Slice 3 longitudinal browser foundation
+# ---------------------------------------------------------------------------
+
+@app.get("/api/browser/overview")
+def get_browser_overview(db: Session = Depends(get_db)):
+    return browser_overview(db)
+
+
+@app.get("/api/browser/swimmers")
+def get_browser_swimmers(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    q: Optional[str] = None,
+    team: Optional[str] = None,
+    min_results: Optional[int] = Query(None, ge=0),
+    has_warnings: Optional[bool] = None,
+    sort: str = Query("name", pattern="^(name|team|result_count|latest_meet)$"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    return list_browser_swimmers(
+        db,
+        page=page,
+        limit=limit,
+        q=q,
+        team=team,
+        min_results=min_results,
+        has_warnings=has_warnings,
+        sort=sort,
+        order=order,
+    )
+
+
+@app.get("/api/browser/swimmers/{swimmer_id}")
+def get_browser_swimmer(swimmer_id: int, db: Session = Depends(get_db)):
+    payload = browser_swimmer_detail(db, swimmer_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Swimmer not found")
+    return payload
+
+
+@app.get("/api/browser/meets/{meet_id}")
+def get_browser_meet(meet_id: int, db: Session = Depends(get_db)):
+    payload = browser_meet(db, meet_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Meet not found")
+    return payload
+
+
+@app.get("/api/browser/events")
+def get_browser_event(
+    meet_id: int = Query(..., ge=1),
+    event_key: str = Query(..., min_length=1),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    round: Optional[str] = None,
+    row_type: str = Query("all", pattern="^(all|individual|relay)$"),
+    order: str = Query("place", pattern="^(place|time|name)$"),
+    db: Session = Depends(get_db),
+):
+    payload = browser_event(
+        db,
+        meet_id=meet_id,
+        event_key=event_key,
+        page=page,
+        limit=limit,
+        round_name=round,
+        row_type=row_type,
+        order=order,
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Meet not found")
+    return payload
+
+
+@app.get("/api/browser/data-quality")
+def get_browser_data_quality(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return browser_data_quality(db, page=page, limit=limit)
 
 
 # ---------------------------------------------------------------------------
