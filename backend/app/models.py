@@ -271,11 +271,48 @@ class ParseJob(Base):
     )
 
 
+class TeamCanon(Base):
+    __tablename__ = "TeamCanon"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    canonicalName: Mapped[str] = mapped_column(String, nullable=False)
+    key: Mapped[str] = mapped_column(String, nullable=False, unique=True)  # normalized identity key
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    aliases: Mapped[list["TeamAlias"]] = relationship(back_populates="canonical", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("TeamCanon_key_idx", "key"),
+    )
+
+
+class TeamAlias(Base):
+    __tablename__ = "TeamAlias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    teamCanonId: Mapped[int] = mapped_column(Integer, ForeignKey("TeamCanon.id"), nullable=False)
+    rawName: Mapped[str] = mapped_column(String, nullable=False)
+    key: Mapped[str] = mapped_column(String, nullable=False)  # normalized key of rawName
+    firstSeenAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lastSeenAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    canonical: Mapped["TeamCanon"] = relationship(back_populates="aliases")
+
+    __table_args__ = (
+        UniqueConstraint("teamCanonId", "key", name="TeamAlias_canon_key_uq"),
+        Index("TeamAlias_key_idx", "key"),
+    )
+
+
 class Swimmer(Base):
     __tablename__ = "Swimmer"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    nameKey: Mapped[str | None] = mapped_column(String, nullable=True)  # normalized identity key (see entity_resolution)
+    teamKey: Mapped[str | None] = mapped_column(String, nullable=True)  # normalized team identity key
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     team: Mapped[str | None] = mapped_column(String, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -285,6 +322,8 @@ class Swimmer(Base):
 
     __table_args__ = (
         Index("Swimmer_name_idx", "name"),
+        Index("Swimmer_nameKey_idx", "nameKey"),
+        Index("Swimmer_nameKey_teamKey_idx", "nameKey", "teamKey"),
         Index("Swimmer_team_idx", "team"),
     )
 

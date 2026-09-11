@@ -40,6 +40,7 @@ from .browser import (
     list_browser_swimmers,
 )
 from .database import Base, engine, get_db
+from .entity_resolution import resolve_swimmer, resolve_team
 from .ingestion import classify_document, is_import_eligible_document, record_parse_job, record_raw_document, start_ingestion_run
 from .models import IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
 from .parsers.base import detect_and_parse
@@ -179,7 +180,7 @@ def _swimmer_brief(s: Swimmer) -> SwimmerBrief:
 
 
 def _meet_brief(m: Meet) -> MeetBrief:
-    return MeetBrief(id=m.id, name=m.name, date=m.startDate, location=m.location)
+    return MeetBrief(id=m.id, name=m.name, date=m.startDate, end_date=m.endDate, location=m.location)
 
 
 def _result_to_list_item(r: Result) -> ResultListItem:
@@ -495,18 +496,9 @@ def _process_parsed_meet(
         round_name = _time_type_to_round(event.time_type)
 
         for pr in event.results:
-            swimmer = db.query(Swimmer).filter(
-                Swimmer.name == pr.name,
-                Swimmer.team == pr.team,
-            ).first()
-
-            if not swimmer:
-                swimmer = Swimmer(name=pr.name, age=pr.age, team=pr.team)
-                db.add(swimmer)
-                db.flush()
+            swimmer, created = resolve_swimmer(db, pr.name, pr.age, pr.team)
+            if created:
                 swimmers_created.add(pr.name)
-            elif pr.age and (swimmer.age is None or pr.age > swimmer.age):
-                swimmer.age = pr.age
 
             content_hash = _compute_result_hash(
                 meet_id=meet.id, event=event.event_name, swimmer_name=pr.name,
@@ -553,7 +545,10 @@ def _process_parsed_meet(
         round_name = _time_type_to_round(event.time_type)
 
         for rr in event.relay_results:
-            # Compute relay content hash
+            team_canonical = resolve_team(db, rr.team_name)
+
+            # Compute relay content hash (kept on raw team name so re-imports stay
+            # idempotent with previously imported data).
             relay_hash = _compute_result_hash(
                 meet_id=meet.id, event=event.event_name,
                 swimmer_name=rr.team_name, team=rr.relay_letter,
@@ -572,7 +567,7 @@ def _process_parsed_meet(
             relay_result = RelayResult(
                 meetId=meet.id,
                 event=event.event_name,
-                teamName=rr.team_name,
+                teamName=team_canonical,
                 relayLetter=rr.relay_letter,
                 time=rr.finals_time,
                 seedTime=rr.seed_time,
@@ -597,19 +592,10 @@ def _process_parsed_meet(
 
             # Process relay legs — find/create swimmers
             for leg in rr.legs:
-                # For relay swimmers, team is the relay team name
-                swimmer = db.query(Swimmer).filter(
-                    Swimmer.name == leg.name,
-                    Swimmer.team == rr.team_name,
-                ).first()
-
-                if not swimmer:
-                    swimmer = Swimmer(name=leg.name, age=leg.age, team=rr.team_name)
-                    db.add(swimmer)
-                    db.flush()
+                # For relay swimmers, team is the (canonicalized) relay team name
+                swimmer, created = resolve_swimmer(db, leg.name, leg.age, rr.team_name)
+                if created:
                     swimmers_created.add(leg.name)
-                elif leg.age and (swimmer.age is None or leg.age > swimmer.age):
-                    swimmer.age = leg.age
 
                 relay_leg = RelayLeg(
                     relayResultId=relay_result.id,

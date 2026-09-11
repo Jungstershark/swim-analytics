@@ -26,6 +26,8 @@ from app.models import (  # noqa: E402, F401
     SourceRule,
     SourceSite,
     Swimmer,
+    TeamAlias,
+    TeamCanon,
 )
 
 config = context.config
