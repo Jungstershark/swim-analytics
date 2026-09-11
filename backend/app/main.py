@@ -496,16 +496,39 @@ def _process_parsed_meet(
         round_name = _time_type_to_round(event.time_type)
 
         for pr in event.results:
-            swimmer, created = resolve_swimmer(db, pr.name, pr.age, pr.team)
-            if created:
-                swimmers_created.add(pr.name)
-
             content_hash = _compute_result_hash(
                 meet_id=meet.id, event=event.event_name, swimmer_name=pr.name,
                 team=pr.team, round_name=round_name, time=pr.finals_time,
             )
 
+            # Check exact source identity before resolving the swimmer. This keeps
+            # re-imports idempotent even when age/team evidence is too incomplete
+            # to safely attach the row to an existing person.
             existing = db.query(Result).filter(Result.contentHash == content_hash).first()
+            if existing:
+                duplicates_skipped += 1
+                duplicates_list.append({
+                    "event": event.event_name, "name": pr.name,
+                    "team": pr.team, "round": round_name, "time": pr.finals_time,
+                })
+                continue
+
+            swimmer, created = resolve_swimmer(db, pr.name, pr.age, pr.team)
+            if created:
+                swimmers_created.add(pr.name)
+
+            # Identity resolution intentionally treats validated team spelling
+            # variants as one swimmer. Dedup must use the same semantics or a
+            # corrected team label can duplicate an otherwise identical swim.
+            existing = db.query(Result).filter(
+                Result.swimmerId == swimmer.id,
+                Result.meetId == meet.id,
+                Result.event == event.event_name,
+                Result.round == round_name,
+                Result.swimDate == swim_date,
+                Result.time == pr.finals_time,
+                Result.sourceEventNumber == event.event_number,
+            ).first()
             if existing:
                 duplicates_skipped += 1
                 duplicates_list.append({
@@ -531,6 +554,8 @@ def _process_parsed_meet(
                 round=round_name,
                 swimDate=swim_date,
                 contentHash=content_hash,
+                rawSwimmerName=pr.name,
+                rawTeamName=pr.team,
                 sourceDocumentSha256=raw_document.sha256 if raw_document else None,
                 parseJobId=parse_job.id if parse_job else None,
                 ingestionRunId=ingestion_run.id if ingestion_run else None,
@@ -556,6 +581,17 @@ def _process_parsed_meet(
             )
 
             existing = db.query(RelayResult).filter(RelayResult.contentHash == relay_hash).first()
+            if existing is None:
+                existing = db.query(RelayResult).filter(
+                    RelayResult.meetId == meet.id,
+                    RelayResult.event == event.event_name,
+                    RelayResult.teamName == team_canonical,
+                    RelayResult.relayLetter == rr.relay_letter,
+                    RelayResult.round == round_name,
+                    RelayResult.swimDate == swim_date,
+                    RelayResult.time == rr.finals_time,
+                    RelayResult.sourceEventNumber == event.event_number,
+                ).first()
             if existing:
                 duplicates_skipped += 1
                 duplicates_list.append({
@@ -581,6 +617,7 @@ def _process_parsed_meet(
                 splits=_splits_to_json(rr.splits),
                 reactionTime=rr.reaction_time,
                 contentHash=relay_hash,
+                rawTeamName=rr.team_name,
                 sourceDocumentSha256=raw_document.sha256 if raw_document else None,
                 parseJobId=parse_job.id if parse_job else None,
                 ingestionRunId=ingestion_run.id if ingestion_run else None,

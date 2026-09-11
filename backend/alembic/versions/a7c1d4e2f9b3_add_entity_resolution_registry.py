@@ -27,8 +27,19 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column('Swimmer', sa.Column('nameKey', sa.String(), nullable=True))
     op.add_column('Swimmer', sa.Column('teamKey', sa.String(), nullable=True))
+    op.add_column('Result', sa.Column('rawSwimmerName', sa.String(), nullable=True))
+    op.add_column('Result', sa.Column('rawTeamName', sa.String(), nullable=True))
+    op.add_column('RelayResult', sa.Column('rawTeamName', sa.String(), nullable=True))
     op.create_index('Swimmer_nameKey_idx', 'Swimmer', ['nameKey'])
-    op.create_index('Swimmer_nameKey_teamKey_idx', 'Swimmer', ['nameKey', 'teamKey'])
+    # Keys are nullable only so this additive migration can precede the controlled
+    # backfill. Once populated, this is the database concurrency guard.
+    op.create_index(
+        'Swimmer_identity_uq',
+        'Swimmer',
+        ['nameKey', 'teamKey', 'age'],
+        unique=True,
+        postgresql_where=sa.text('"teamKey" <> \'\' AND age IS NOT NULL'),
+    )
 
     op.create_table(
         'TeamCanon',
@@ -65,7 +76,10 @@ def downgrade() -> None:
     op.drop_index('TeamCanon_key_idx', table_name='TeamCanon')
     op.drop_table('TeamCanon')
 
-    op.drop_index('Swimmer_nameKey_teamKey_idx', table_name='Swimmer')
+    op.drop_index('Swimmer_identity_uq', table_name='Swimmer')
     op.drop_index('Swimmer_nameKey_idx', table_name='Swimmer')
+    op.drop_column('RelayResult', 'rawTeamName')
+    op.drop_column('Result', 'rawTeamName')
+    op.drop_column('Result', 'rawSwimmerName')
     op.drop_column('Swimmer', 'teamKey')
     op.drop_column('Swimmer', 'nameKey')

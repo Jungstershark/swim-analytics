@@ -1,6 +1,8 @@
 """Tests for entity resolution (team/swimmer canonicalization)."""
 
+import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
@@ -53,15 +55,22 @@ def test_team_normalization_does_not_strip_meaningful_suffixes():
 
 
 def test_normalize_name_strips_case_whitespace_and_guest_marker():
-    assert normalize_name("LI, Sitong") == "lisitong"
-    assert normalize_name("li, sitong") == "lisitong"
-    assert normalize_name("*Tandhiwira, Airien") == "tandhiwiraairien"
-    assert normalize_name("  Wang,  Muyun ") == "wangmuyun"
+    assert normalize_name("LI, Sitong") == "li|sitong"
+    assert normalize_name("li, sitong") == "li|sitong"
+    assert normalize_name("*Tandhiwira, Airien") == "tandhiwira|airien"
+    assert normalize_name("  Wang,  Muyun ") == "wang|muyun"
+
+
+def test_name_normalization_preserves_structural_and_unicode_distinctions():
+    assert normalize_name("Li, An") != normalize_name("Lian")
+    assert normalize_name("王伟") == "|王伟"
+    assert normalize_name("李娜") == "|李娜"
+    assert normalize_name("王伟") != normalize_name("李娜")
 
 
 def test_name_normalization_does_not_apply_team_suffix_rules():
-    assert normalize_name("Smith, John (Jr)") == "smithjohnjr"
-    assert normalize_name("Tan, Yi-XU") == "tanyixu"
+    assert normalize_name("Smith, John (Jr)") == "smith|johnjr"
+    assert normalize_name("Tan, Yi-XU") == "tan|yixu"
 
 
 def test_prettify_team_strips_tags_and_collapses_whitespace():
@@ -70,11 +79,16 @@ def test_prettify_team_strips_tags_and_collapses_whitespace():
     assert prettify_team("Stamford American Internationa-ZZ") == "Stamford American Internationa"
 
 
-def test_pick_better_canonical_prefers_more_words():
-    assert pick_better_canonical("Xavier SchoolSwimClub", "Xavier School Swim Club") == "Xavier School Swim Club"
-    assert pick_better_canonical("Xavier School Swim Club", "Xavier SchoolSwimClub") == "Xavier School Swim Club"
-    assert pick_better_canonical(None, "Xavier School Swim Club") == "Xavier School Swim Club"
-    assert pick_better_canonical("", "Xavier School Swim Club") == "Xavier School Swim Club"
+def test_pick_better_canonical_prefers_readable_name_deterministically():
+    clean = "Xavier School Swim Club"
+    joined = "Xavier SchoolSwimClub"
+    corrupt = "X a v i e r S c h o o l S w i m C l u b"
+    assert pick_better_canonical(joined, clean) == clean
+    assert pick_better_canonical(clean, joined) == clean
+    assert pick_better_canonical(clean, corrupt) == clean
+    assert pick_better_canonical(corrupt, clean) == clean
+    assert pick_better_canonical(None, clean) == clean
+    assert pick_better_canonical("", clean) == clean
 
 
 # ---------------------------------------------------------------------------
@@ -164,13 +178,54 @@ def test_resolve_swimmer_keeps_unknown_team_name_collision_separate_by_age():
     assert db.query(Swimmer).count() == 2
 
 
-def test_resolve_swimmer_updates_age_to_maximum():
+def test_resolve_swimmer_keeps_same_team_name_collision_separate_by_age():
     db = _test_session()
-    s1, _ = resolve_swimmer(db, "Cheong, Megan", 14, "X Lab")
-    s2, created = resolve_swimmer(db, "Cheong, Megan", 17, "X Lab")
-    assert created is False
-    assert s2.id == s1.id
-    assert s2.age == 17
+    younger, _ = resolve_swimmer(db, "Cheong, Megan", 14, "X Lab")
+    older, created = resolve_swimmer(db, "Cheong, Megan", 17, "X Lab")
+    assert created is True
+    assert older.id != younger.id
+    assert db.query(Swimmer).count() == 2
+
+
+def test_resolve_swimmer_keeps_missing_identity_evidence_separate():
+    db = _test_session()
+    missing_age_1, _ = resolve_swimmer(db, "Lee, Alex", None, "Known Club")
+    missing_age_2, _ = resolve_swimmer(db, "Lee, Alex", None, "Known Club")
+    missing_team_1, _ = resolve_swimmer(db, "Lee, Alex", 12, None)
+    missing_team_2, _ = resolve_swimmer(db, "Lee, Alex", 12, None)
+    assert missing_age_1.id != missing_age_2.id
+    assert missing_team_1.id != missing_team_2.id
+    assert db.query(Swimmer).count() == 4
+
+
+def test_swimmer_identity_has_database_uniqueness_guard():
+    db = _test_session()
+    db.add_all([
+        Swimmer(name="A", nameKey="family|given", teamKey="club", age=12, team="Club"),
+        Swimmer(name="A", nameKey="family|given", teamKey="club", age=12, team="Club"),
+    ])
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_merge_duplicate_swimmers_skips_ambiguous_missing_evidence():
+    db = _test_session()
+    rows = [
+        Swimmer(name="Lee, Alex", age=None, team="Known Club"),
+        Swimmer(name="Lee, Alex", age=None, team="Known Club"),
+        Swimmer(name="Lee, Alex", age=12, team=None),
+        Swimmer(name="Lee, Alex", age=12, team=None),
+    ]
+    db.add_all(rows)
+    db.flush()
+    keys = {
+        rows[0].id: ("lee|alex", "knownclub", None),
+        rows[1].id: ("lee|alex", "knownclub", None),
+        rows[2].id: ("lee|alex", "", 12),
+        rows[3].id: ("lee|alex", "", 12),
+    }
+    assert merge_duplicate_swimmers(db, keys) == 0
+    assert db.query(Swimmer).count() == 4
 
 
 def test_merge_duplicate_swimmers_repoints_results_and_deletes_dups():
@@ -181,21 +236,41 @@ def test_merge_duplicate_swimmers_repoints_results_and_deletes_dups():
     db.add(meet)
     db.flush()
 
-    # Two swimmers with the same nameKey+teamKey (the duplicate-swimmer bug).
-    keep = Swimmer(name="Gestuvo, Lester", nameKey="gestuvolester", teamKey="xavierschoolswimclub", age=9, team="Xavier School Swim Club")
-    dup = Swimmer(name="Gestuvo, Lester", nameKey="gestuvolester", teamKey="xavierschoolswimclub", age=9, team="Xavier School Swim Club")
-    db.add_all([keep, dup])
+    # Two swimmers with the same normalized name/team/age (the duplicate bug),
+    # plus two ambiguity controls that must remain separate.
+    keep = Swimmer(name="Gestuvo, Lester", nameKey=None, teamKey=None, age=9, team="Xavier School Swim Club")
+    dup = Swimmer(name="Gestuvo, Lester", nameKey=None, teamKey=None, age=9, team="Xavier SchoolSwimClub (Phi")
+    older = Swimmer(name="Gestuvo, Lester", nameKey=None, teamKey=None, age=16, team="Xavier School Swim Club")
+    other_team = Swimmer(name="Gestuvo, Lester", nameKey=None, teamKey=None, age=9, team="Other Club")
+    db.add_all([keep, dup, older, other_team])
     db.flush()
 
-    r1 = Result(swimmerId=keep.id, meetId=meet.id, event="50 Free", time="30.00")
-    r2 = Result(swimmerId=keep.id, meetId=meet.id, event="100 Free", time="1:05.00")
-    r3 = Result(swimmerId=dup.id, meetId=meet.id, event="200 IM", time="2:40.00")
-    db.add_all([r1, r2, r3])
+    r1 = Result(swimmerId=keep.id, meetId=meet.id, event="50 Free", time="30.00", rawTeamName="Xavier School Swim Club")
+    r2 = Result(swimmerId=keep.id, meetId=meet.id, event="100 Free", time="1:05.00", rawTeamName="Xavier School Swim Club")
+    r3 = Result(swimmerId=dup.id, meetId=meet.id, event="200 IM", time="2:40.00", rawTeamName="Xavier SchoolSwimClub (Phi")
+    relay = RelayResult(meetId=meet.id, event="4x50 Free", teamName="Xavier School Swim Club", time="2:00.00")
+    db.add_all([r1, r2, r3, relay])
+    db.flush()
+    leg = RelayLeg(relayResultId=relay.id, legNumber=1, swimmerId=dup.id, swimmerName=dup.name)
+    db.add(leg)
     db.flush()
 
-    merged = merge_duplicate_swimmers(db)
+    identity_keys = {
+        keep.id: ("gestuvo|lester", "xavierschoolswimclub", 9),
+        dup.id: ("gestuvo|lester", "xavierschoolswimclub", 9),
+        older.id: ("gestuvo|lester", "xavierschoolswimclub", 16),
+        other_team.id: ("gestuvo|lester", "otherclub", 9),
+    }
+    merged = merge_duplicate_swimmers(db, identity_keys)
     assert merged == 1
-    assert db.query(Swimmer).count() == 1
-    # All results survived and now point at the kept swimmer.
+    assert db.query(Swimmer).count() == 3
+    assert db.get(Swimmer, older.id) is not None
+    assert db.get(Swimmer, other_team.id) is not None
+    # All results and relay legs survived and now point at the kept swimmer.
     assert db.query(Result).count() == 3
     assert {r.swimmerId for r in db.query(Result).all()} == {keep.id}
+    assert {r.rawTeamName for r in db.query(Result).all()} == {
+        "Xavier School Swim Club",
+        "Xavier SchoolSwimClub (Phi",
+    }
+    assert db.query(RelayLeg).one().swimmerId == keep.id

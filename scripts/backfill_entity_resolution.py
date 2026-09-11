@@ -7,8 +7,8 @@ One-off operator script (run inside the backend pod, like the SNAG import):
     2. Builds the ``TeamCanon`` / ``TeamAlias`` registry from every distinct
        team spelling seen in ``Swimmer`` and ``RelayResult``.
     3. Re-canonicalizes stored team names to the master value.
-    4. Merges duplicate Swimmer rows (same name key + team key) by repointing
-       their Results/RelayLegs and deleting the duplicates.
+    4. Merges duplicate Swimmer rows (same normalized name, team, and age) by
+       repointing their Results/RelayLegs and deleting the duplicates.
 
 Run with ``--dry-run`` first to preview counts without writing.
 """
@@ -16,6 +16,15 @@ Run with ``--dry-run`` first to preview counts without writing.
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+# Make the one-off command runnable from either the repository root or
+# /workspace/backend in the deployment pod without operator-only PYTHONPATH lore.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BACKEND_ROOT = _REPO_ROOT / "backend"
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.database import SessionLocal
 from app.entity_resolution import merge_duplicate_swimmers, normalize_name, normalize_team, resolve_team
@@ -45,11 +54,25 @@ def main() -> int:
     try:
         swimmers = db.query(Swimmer).order_by(Swimmer.id).all()
 
-        # 1. Backfill identity keys.
-        for s in swimmers:
-            s.nameKey = normalize_name(s.name)
-            s.teamKey = normalize_team(s.team)
-        db.flush()
+        # Preserve queryable source values before any display canonicalization or
+        # destructive duplicate merge. The linked raw PDF remains the authority.
+        for result in db.query(Result).all():
+            if result.rawSwimmerName is None:
+                result.rawSwimmerName = result.swimmer.name
+            if result.rawTeamName is None:
+                result.rawTeamName = result.swimmer.team
+        relay_results = db.query(RelayResult).all()
+        for relay_result in relay_results:
+            if relay_result.rawTeamName is None:
+                relay_result.rawTeamName = relay_result.teamName
+
+        # 1. Compute identity keys without persisting them yet. The migration's
+        # unique index is already active; legacy duplicates must be merged before
+        # both rows can be assigned the same non-null key tuple.
+        identity_keys = {
+            s.id: (normalize_name(s.name), normalize_team(s.team), s.age)
+            for s in swimmers
+        }
 
         # 2. Build the team registry from every distinct raw spelling. This is
         # the only point at which legacy denormalized values are still source
@@ -60,7 +83,7 @@ def main() -> int:
         for s in swimmers:
             if s.team:
                 raw_teams.add(s.team)
-        for rr in db.query(RelayResult).all():
+        for rr in relay_results:
             if rr.teamName:
                 raw_teams.add(rr.teamName)
 
@@ -84,14 +107,21 @@ def main() -> int:
             if s.team and s.team != canonical_map.get(s.team, s.team):
                 s.team = canonical_map[s.team]
                 canonicalized_teams += 1
-        for rr in db.query(RelayResult).all():
+        for rr in relay_results:
             if rr.teamName and rr.teamName != canonical_map.get(rr.teamName, rr.teamName):
                 rr.teamName = canonical_map[rr.teamName]
                 canonicalized_teams += 1
         db.flush()
 
-        # 4. Merge duplicate swimmers (same nameKey + teamKey).
-        merged_swimmers = merge_duplicate_swimmers(db)
+        # 4. Merge duplicates before persisting colliding identity keys, then
+        # assign keys to the surviving rows. The unique DB index now becomes the
+        # ongoing concurrency guard for runtime ingestion.
+        merged_swimmers = merge_duplicate_swimmers(db, identity_keys)
+        for swimmer in db.query(Swimmer).all():
+            name_key, team_key, _age = identity_keys[swimmer.id]
+            swimmer.nameKey = name_key
+            swimmer.teamKey = team_key
+        db.flush()
 
         after = snapshot(db)
 

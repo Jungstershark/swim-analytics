@@ -323,7 +323,15 @@ class Swimmer(Base):
     __table_args__ = (
         Index("Swimmer_name_idx", "name"),
         Index("Swimmer_nameKey_idx", "nameKey"),
-        Index("Swimmer_nameKey_teamKey_idx", "nameKey", "teamKey"),
+        Index(
+            "Swimmer_identity_uq",
+            "nameKey",
+            "teamKey",
+            "age",
+            unique=True,
+            postgresql_where=text('"teamKey" <> \'\' AND age IS NOT NULL'),
+            sqlite_where=text('"teamKey" <> \'\' AND age IS NOT NULL'),
+        ),
         Index("Swimmer_team_idx", "team"),
     )
 
@@ -373,6 +381,8 @@ class Result(Base):
     round: Mapped[str | None] = mapped_column(String, nullable=True)  # "Prelim", "Final", "Timed Final", "Semifinal"
     swimDate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Actual date of this swim
     contentHash: Mapped[str | None] = mapped_column(String, nullable=True)  # SHA-256 for deduplication
+    rawSwimmerName: Mapped[str | None] = mapped_column(String, nullable=True)  # immutable parsed source value
+    rawTeamName: Mapped[str | None] = mapped_column(String, nullable=True)  # immutable parsed source value
     sourceDocumentSha256: Mapped[str | None] = mapped_column(String, nullable=True)
     parseJobId: Mapped[int | None] = mapped_column(Integer, ForeignKey("ParseJob.id"), nullable=True)
     ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)
@@ -416,6 +426,7 @@ class RelayResult(Base):
     splits: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON string
     reactionTime: Mapped[str | None] = mapped_column(String, nullable=True)
     contentHash: Mapped[str | None] = mapped_column(String, nullable=True)
+    rawTeamName: Mapped[str | None] = mapped_column(String, nullable=True)  # immutable parsed source value
     sourceDocumentSha256: Mapped[str | None] = mapped_column(String, nullable=True)
     parseJobId: Mapped[int | None] = mapped_column(Integer, ForeignKey("ParseJob.id"), nullable=True)
     ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)

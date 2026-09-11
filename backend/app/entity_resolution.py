@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -48,12 +49,14 @@ _HYTEK_CODE = re.compile(r"-(?:ZZ|VD)\s*$", re.IGNORECASE)
 _GUEST_MARKER = re.compile(r"^\*")
 
 
-def normalize(raw: str | None) -> str:
-    """Collapse case, spacing, and punctuation to a Unicode-safe key."""
-    if not raw:
-        return ""
+def _identity_component(raw: str) -> str:
     value = unicodedata.normalize("NFKC", raw.strip()).casefold()
     return "".join(character for character in value if character.isalnum())
+
+
+def normalize(raw: str | None) -> str:
+    """Collapse case, spacing, and punctuation to a Unicode-safe key."""
+    return _identity_component(raw) if raw else ""
 
 
 def normalize_team(raw: str | None) -> str:
@@ -66,10 +69,19 @@ def normalize_team(raw: str | None) -> str:
 
 
 def normalize_name(raw: str | None) -> str:
-    """Identity key for a swimmer name (only the guest marker is stripped)."""
+    """Identity key for a swimmer name, preserving surname/given-name structure.
+
+    HY-TEK normally emits ``Surname, Given``. Keeping that comma boundary in the
+    key prevents a lossy collision such as ``Li, An`` == ``Lian`` while still
+    reconciling case, spacing, apostrophe, and guest-marker variants.
+    """
     if not raw:
         return ""
-    return normalize(_GUEST_MARKER.sub("", raw.strip()))
+    value = _GUEST_MARKER.sub("", raw.strip())
+    if "," in value:
+        surname, given = value.split(",", 1)
+        return f"{_identity_component(surname)}|{_identity_component(given)}"
+    return f"|{_identity_component(value)}"
 
 
 def prettify_team(raw: str | None) -> str:
@@ -87,18 +99,34 @@ def prettify_team(raw: str | None) -> str:
     return s.strip()
 
 
-def _canonical_quality(name: str) -> tuple[int, int]:
-    """Rank a candidate canonical: prefer more words, then longer."""
-    return (len(name.split()), len(name))
+def _canonical_quality(name: str) -> tuple[int, int, int, int, int, str, str]:
+    """Deterministically rank readable canonical candidates.
+
+    Character-spaced OCR corruption (``X a v i e r ...``) must never beat a
+    normal spelling merely because it contains more whitespace-separated tokens.
+    """
+    tokens = name.split()
+    single_character_ratio = (
+        sum(len(token) == 1 for token in tokens) / len(tokens) if tokens else 1.0
+    )
+    suspicious_character_spacing = len(tokens) >= 4 and single_character_ratio >= 0.6
+    multi_character_words = sum(len(token) > 1 for token in tokens)
+    mixed_case = int(any(char.islower() for char in name) and any(char.isupper() for char in name))
+    return (
+        int(not suspicious_character_spacing),
+        multi_character_words,
+        len(tokens),
+        mixed_case,
+        len(name),
+        name.casefold(),
+        name,
+    )
 
 
 def pick_better_canonical(current: str | None, candidate: str | None) -> str:
-    """Return whichever spelling is the 'better' master value."""
-    if not current:
-        return candidate or ""
-    if not candidate:
-        return current
-    return candidate if _canonical_quality(candidate) > _canonical_quality(current) else current
+    """Return the deterministic, safer display master for two equivalent keys."""
+    choices = [name for name in (current, candidate) if name]
+    return max(choices, key=_canonical_quality) if choices else ""
 
 
 def resolve_team(db: Session, raw_team: str | None) -> str:
@@ -156,12 +184,11 @@ def resolve_team(db: Session, raw_team: str | None) -> str:
 def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: str | None) -> tuple[Swimmer, bool]:
     """Find (or create) the Swimmer for a result/leg row.
 
-    Identity is the normalized name key plus the normalized team key. Using the
-    *keys* (not the display strings) means the same person merges even when their
-    team was spelled ``Xavier SchoolSwimClub (Phi`` in one PDF and
-    ``Xavier School Swim Club`` in another, while same-name/different-team people
-    (the ``Cheong, Megan`` age-14 vs age-17 case) stay separate. Age is treated as
-    volatile (a swimmer ages up between meets), so it is updated, not matched.
+    Identity is normalized surname/given-name structure plus normalized team and
+    reported age. Using keys (not display strings) merges Xavier spelling variants
+    for the same meet, while age equality avoids destructively merging two genuine
+    same-name swimmers from one club. This is deliberately conservative: aging and
+    team transfers remain for a future authoritative AthleteIdentity model.
 
     The stored ``team`` is the canonical display name, refreshed on each hit so it
     converges to the best spelling as the registry is promoted.
@@ -169,47 +196,55 @@ def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: st
     Returns ``(swimmer, created)``.
     """
     name_key = normalize_name(name)
+    if not name_key.replace("|", ""):
+        raise ValueError("Cannot resolve swimmer without a non-empty name")
     team_key = normalize_team(raw_team)
     team_display = resolve_team(db, raw_team)
 
-    swimmer_query = db.query(Swimmer).filter(
-        Swimmer.nameKey == name_key,
-        Swimmer.teamKey == team_key,
-    )
-    # A missing team removes our main collision guard. In that degraded case,
-    # require age equality rather than silently merging two same-name people.
-    if not team_key:
-        swimmer_query = swimmer_query.filter(Swimmer.age == age)
-    swimmer = swimmer_query.first()
+    # Fail closed when age or team evidence is missing: exact source re-imports
+    # are filtered by content hash before resolution, but ambiguous new records
+    # must not be destructively attached to an existing person.
+    swimmer = None
+    if age is not None and team_key:
+        swimmer = db.query(Swimmer).filter(
+            Swimmer.nameKey == name_key,
+            Swimmer.teamKey == team_key,
+            Swimmer.age == age,
+        ).first()
     if swimmer is None:
         swimmer = Swimmer(name=name or "", nameKey=name_key, teamKey=team_key, age=age, team=team_display)
         db.add(swimmer)
         db.flush()
         return swimmer, True
-    if age and (swimmer.age is None or age > swimmer.age):
-        swimmer.age = age
     if swimmer.team != team_display:
         swimmer.team = team_display
     return swimmer, False
 
 
-def merge_duplicate_swimmers(db: Session) -> int:
-    """Merge Swimmer rows that share the same (nameKey, teamKey).
+def merge_duplicate_swimmers(
+    db: Session,
+    identity_keys: Mapping[int, tuple[str, str, int | None]] | None = None,
+) -> int:
+    """Merge Swimmer rows sharing exact normalized name, team, and age.
 
-    Duplicates arise when the same person was imported with a team spelling that
-    normalized to a different key (pre-entity-resolution) or with inconsistent
-    name casing. The lowest-id row wins; its age is raised to the max seen; the
-    duplicates' Results and RelayLegs are repointed and the duplicates deleted.
+    ``identity_keys`` lets the deployment backfill merge legacy rows *before*
+    persisting colliding keys, so the database uniqueness index can remain active
+    throughout the operation. Runtime callers can omit it and use stored keys.
+
+    The lowest-id row wins. Results and RelayLegs are repointed before duplicate
+    rows are deleted. Including age is a conservative ambiguity guard until a
+    stable AthleteIdentity/birth-year model exists.
 
     Returns the number of duplicate rows removed.
     """
     groups: dict[tuple[str, str, int | None], list[Swimmer]] = defaultdict(list)
     for s in db.query(Swimmer).order_by(Swimmer.id).all():
-        team_key = s.teamKey or ""
-        # Preserve same-name people of different ages when team evidence is
-        # unavailable. For known teams, age remains volatile and is not identity.
-        key = (s.nameKey or "", team_key, s.age if not team_key else None)
-        if key[0]:  # ignore rows without a name key
+        key = identity_keys[s.id] if identity_keys is not None else (s.nameKey or "", s.teamKey or "", s.age)
+        if (
+            key[0].replace("|", "")
+            and key[1]
+            and key[2] is not None
+        ):  # fail closed when name, team, or age evidence is missing
             groups[key].append(s)
 
     merged = 0
@@ -218,8 +253,6 @@ def merge_duplicate_swimmers(db: Session) -> int:
             continue
         keep = dupes[0]
         for dup in dupes[1:]:
-            if dup.age and (keep.age is None or dup.age > keep.age):
-                keep.age = dup.age
             for r in db.query(Result).filter(Result.swimmerId == dup.id).all():
                 r.swimmerId = keep.id
             for leg in db.query(RelayLeg).filter(RelayLeg.swimmerId == dup.id).all():

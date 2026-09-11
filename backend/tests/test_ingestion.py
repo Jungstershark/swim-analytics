@@ -15,7 +15,7 @@ from app.ingestion import (
     start_ingestion_run,
 )
 from app.main import _process_parsed_meet
-from app.models import IngestionRun, Meet, ParseJob, RawDocument, Result, SourceReference
+from app.models import IngestionRun, Meet, ParseJob, RawDocument, Result, SourceReference, Swimmer
 from app.parsers.hytek import parse_hytek_text
 
 
@@ -193,3 +193,60 @@ Preliminaries
     assert result.ingestionRunId == ingestion_run.id
     assert result.parserVersion == "hytek-v1"
     assert result.sourceEventNumber == "101"
+    assert result.rawSwimmerName == "WU, Dylan Jiaxu"
+    assert result.rawTeamName == "Pacific Swimming Club"
+
+
+def test_process_parsed_meet_dedupes_equivalent_team_spellings():
+    db = _test_session()
+    meet = Meet(name="Variant Test", startDate=datetime(2026, 3, 17), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+
+    parsed, _confidence = parse_hytek_text([
+        """Red Dot Aquatics HY-TEK's MEET MANAGER 8.0 - 9:37 AM 18/3/2026 Page 1
+Variant Test - 17/3/2026
+Results
+Event 101 Boys 9 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+Finals
+1 Gestuvo, Lester 9 Xavier School Swim Club 31.00 30.00"""
+    ])
+
+    first = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    assert first[0] == 1
+    assert db.query(Result).count() == 1
+
+    # The source spelling changes, but canonical identity and logical result do not.
+    parsed.events[0].results[0].team = "Xavier SchoolSwimClub (Phi"
+    second = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    assert second[0] == 0
+    assert second[2] == 1
+    assert db.query(Result).count() == 1
+
+
+def test_process_parsed_meet_reimport_with_missing_age_is_idempotent():
+    db = _test_session()
+    meet = Meet(name="Missing Age Test", startDate=datetime(2026, 3, 17), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+
+    parsed, _confidence = parse_hytek_text([
+        """Red Dot Aquatics HY-TEK's MEET MANAGER 8.0 - 9:37 AM 18/3/2026 Page 1
+Missing Age Test - 17/3/2026
+Results
+Event 101 Boys 9 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+Finals
+1 Gestuvo, Lester 9 Xavier School Swim Club 31.00 30.00"""
+    ])
+    parsed.events[0].results[0].age = None
+
+    first = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    second = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+
+    assert first[0] == 1
+    assert second[0] == 0
+    assert second[2] == 1
+    assert db.query(Swimmer).count() == 1
+    assert db.query(Result).count() == 1
