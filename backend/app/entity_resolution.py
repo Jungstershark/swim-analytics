@@ -25,52 +25,48 @@ vs ``Cheong, Megan`` (age 17, Aquatic Performance) name collision separate.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from .models import RelayLeg, Result, Swimmer, TeamAlias, TeamCanon
+from .models import RelayLeg, RelayResult, Result, Swimmer, TeamAlias, TeamCanon
 
-# Trailing country/region tag, possibly truncated by the PDF text layer:
-#   " (Phi)", " (Phi", " (Can)", " (Tpe)"
-_TRAILING_TAG = re.compile(r"\s*\([^)]*\)?\s*$")
+# Trailing three-letter country/region tag, possibly truncated by the PDF text
+# layer: " (Phi)", " (Phi", " (Can)", " (Tpe)", "(THA-US". Restricting
+# the grammar is intentional: a meaningful branch suffix such as "(East)"
+# must remain part of the team's identity.
+_TRAILING_TAG = re.compile(r"\s*\(\s*[A-Z]{3}(?:-[A-Z]{2})?\s*\)?\s*$", re.IGNORECASE)
 
-# HY-TEK abbreviation suffix used when a long team name is truncated to fit a
-# fixed-width column: "Stamford American Internationa-ZZ", "...Swim Team-VD".
-_HYTEK_CODE = re.compile(r"-[A-Z]{2,3}\s*$")
-
-# Anything that is not a lowercase letter or digit (spaces, commas, hyphens,
-# apostrophes, periods) is removed from the key.
-_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+# Observed HY-TEK abbreviation suffixes used when a long team name is truncated
+# to fit a fixed-width column. Do not strip arbitrary -XX/-ABC suffixes: they
+# can be a legitimate part of a club name.
+_HYTEK_CODE = re.compile(r"-(?:ZZ|VD)\s*$", re.IGNORECASE)
 
 # Guest/foreign swimmers are prefixed with "*" in HY-TEK result rows.
 _GUEST_MARKER = re.compile(r"^\*")
 
 
 def normalize(raw: str | None) -> str:
-    """Collapse a raw string to a lossy identity key.
-
-    Order matters: strip the HY-TEK code and trailing country tag *before*
-    removing non-alphanumerics so those fragments never pollute the key.
-    """
+    """Collapse case, spacing, and punctuation to a Unicode-safe key."""
     if not raw:
         return ""
-    s = raw.strip()
-    s = _HYTEK_CODE.sub("", s)
-    s = _TRAILING_TAG.sub("", s)
-    s = s.lower()
-    s = _NON_ALNUM.sub("", s)
-    return s
+    value = unicodedata.normalize("NFKC", raw.strip()).casefold()
+    return "".join(character for character in value if character.isalnum())
 
 
 def normalize_team(raw: str | None) -> str:
-    """Identity key for a team name."""
-    return normalize(raw)
+    """Identity key for a team name with observed HY-TEK noise removed."""
+    if not raw:
+        return ""
+    value = _HYTEK_CODE.sub("", raw.strip())
+    value = _TRAILING_TAG.sub("", value)
+    return normalize(value)
 
 
 def normalize_name(raw: str | None) -> str:
-    """Identity key for a swimmer name (guest marker stripped)."""
+    """Identity key for a swimmer name (only the guest marker is stripped)."""
     if not raw:
         return ""
     return normalize(_GUEST_MARKER.sub("", raw.strip()))
@@ -118,20 +114,41 @@ def resolve_team(db: Session, raw_team: str | None) -> str:
     if not key:
         return raw_team
 
-    alias = db.query(TeamAlias).filter(TeamAlias.key == key).first()
-    if alias is not None:
-        canon = db.query(TeamCanon).filter(TeamCanon.id == alias.teamCanonId).first()
-        if canon is not None:
-            better = pick_better_canonical(canon.canonicalName, prettify_team(raw_team))
-            if better != canon.canonicalName:
-                canon.canonicalName = better
-            return canon.canonicalName
+    now = datetime.now(timezone.utc)
+    canon = db.query(TeamCanon).filter(TeamCanon.key == key).first()
+    if canon is None:
+        canon = TeamCanon(canonicalName=prettify_team(raw_team), key=key)
+        db.add(canon)
+        db.flush()
+    else:
+        old_canonical = canon.canonicalName
+        better = pick_better_canonical(old_canonical, prettify_team(raw_team))
+        if better != old_canonical:
+            canon.canonicalName = better
+            # Display names are currently denormalized on result entities. Keep
+            # them converged when a later, more complete spelling is promoted.
+            db.query(Swimmer).filter(Swimmer.teamKey == key).update(
+                {Swimmer.team: better}, synchronize_session="fetch"
+            )
+            db.query(RelayResult).filter(RelayResult.teamName == old_canonical).update(
+                {RelayResult.teamName: better}, synchronize_session="fetch"
+            )
 
-    # New canonical entity.
-    canon = TeamCanon(canonicalName=prettify_team(raw_team), key=key)
-    db.add(canon)
-    db.flush()
-    db.add(TeamAlias(teamCanonId=canon.id, rawName=raw_team, key=key, firstSeenAt=datetime.now(timezone.utc)))
+    # Keep every exact source spelling as provenance. The normalized key maps
+    # all aliases to the same canonical entity; rawName remains untouched.
+    alias = db.query(TeamAlias).filter(TeamAlias.rawName == raw_team).first()
+    if alias is None:
+        db.add(
+            TeamAlias(
+                teamCanonId=canon.id,
+                rawName=raw_team,
+                key=key,
+                firstSeenAt=now,
+                lastSeenAt=now,
+            )
+        )
+    else:
+        alias.lastSeenAt = now
     db.flush()
     return canon.canonicalName
 
@@ -155,10 +172,15 @@ def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: st
     team_key = normalize_team(raw_team)
     team_display = resolve_team(db, raw_team)
 
-    swimmer = db.query(Swimmer).filter(
+    swimmer_query = db.query(Swimmer).filter(
         Swimmer.nameKey == name_key,
         Swimmer.teamKey == team_key,
-    ).first()
+    )
+    # A missing team removes our main collision guard. In that degraded case,
+    # require age equality rather than silently merging two same-name people.
+    if not team_key:
+        swimmer_query = swimmer_query.filter(Swimmer.age == age)
+    swimmer = swimmer_query.first()
     if swimmer is None:
         swimmer = Swimmer(name=name or "", nameKey=name_key, teamKey=team_key, age=age, team=team_display)
         db.add(swimmer)
@@ -181,9 +203,12 @@ def merge_duplicate_swimmers(db: Session) -> int:
 
     Returns the number of duplicate rows removed.
     """
-    groups: dict[tuple[str, str], list[Swimmer]] = defaultdict(list)
+    groups: dict[tuple[str, str, int | None], list[Swimmer]] = defaultdict(list)
     for s in db.query(Swimmer).order_by(Swimmer.id).all():
-        key = (s.nameKey or "", s.teamKey or "")
+        team_key = s.teamKey or ""
+        # Preserve same-name people of different ages when team evidence is
+        # unavailable. For known teams, age remains volatile and is not identity.
+        key = (s.nameKey or "", team_key, s.age if not team_key else None)
         if key[0]:  # ignore rows without a name key
             groups[key].append(s)
 

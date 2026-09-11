@@ -53,7 +53,7 @@ def upgrade() -> None:
         sa.Column('createdAt', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(['teamCanonId'], ['TeamCanon.id']),
         sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('teamCanonId', 'key', name='TeamAlias_canon_key_uq'),
+        sa.UniqueConstraint('rawName', name='TeamAlias_rawName_uq'),
     )
     op.create_index('TeamAlias_key_idx', 'TeamAlias', ['key'])
 

@@ -45,11 +45,23 @@ def test_normalize_team_strips_country_and_hytek_codes():
     assert normalize_team("Cis Huskies Swim Team-ZZ") == "cishuskiesswimteam"
 
 
+def test_team_normalization_does_not_strip_meaningful_suffixes():
+    """Only observed HY-TEK noise is removable; branch names remain identity."""
+    assert normalize_team("Dolphins (East)") == "dolphinseast"
+    assert normalize_team("Dolphins (West)") == "dolphinswest"
+    assert normalize_team("Team-ABC") == "teamabc"
+
+
 def test_normalize_name_strips_case_whitespace_and_guest_marker():
     assert normalize_name("LI, Sitong") == "lisitong"
     assert normalize_name("li, sitong") == "lisitong"
     assert normalize_name("*Tandhiwira, Airien") == "tandhiwiraairien"
     assert normalize_name("  Wang,  Muyun ") == "wangmuyun"
+
+
+def test_name_normalization_does_not_apply_team_suffix_rules():
+    assert normalize_name("Smith, John (Jr)") == "smithjohnjr"
+    assert normalize_name("Tan, Yi-XU") == "tanyixu"
 
 
 def test_prettify_team_strips_tags_and_collapses_whitespace():
@@ -74,13 +86,47 @@ def test_resolve_team_maps_variants_to_one_master():
     resolve_team(db, "Xavier SchoolSwimClub (Phi")
     resolve_team(db, "Xavier School Swim Club")
     resolve_team(db, "Xavier SchoolSwimClub")
+    resolve_team(db, "Xavier SchoolSwimClub (Phi")  # repeated observation
 
     # One canonical master, promoted to the most complete spelling.
     canon = db.query(TeamCanon).one()
     assert canon.canonicalName == "Xavier School Swim Club"
     assert canon.key == "xavierschoolswimclub"
-    # Aliases are deduped by normalized key, so a single key yields one alias.
-    assert db.query(TeamAlias).count() == 1
+    # Every source spelling remains available as evidence, even though all three
+    # resolve through one normalized key.
+    assert {a.rawName for a in db.query(TeamAlias).all()} == {
+        "Xavier SchoolSwimClub (Phi",
+        "Xavier School Swim Club",
+        "Xavier SchoolSwimClub",
+    }
+
+
+def test_canonical_promotion_updates_existing_display_rows():
+    from datetime import datetime
+
+    db = _test_session()
+    meet = Meet(name="Test Meet", startDate=datetime(2026, 1, 1))
+    db.add(meet)
+    db.flush()
+
+    swimmer, _ = resolve_swimmer(db, "Gestuvo, Lester", 9, "Xavier SchoolSwimClub (Phi")
+    relay = RelayResult(
+        meetId=meet.id,
+        event="Boys 4x50 Freestyle Relay",
+        teamName="Xavier SchoolSwimClub",
+        time="2:30.00",
+    )
+    db.add(relay)
+    db.flush()
+
+    assert swimmer.team == "Xavier SchoolSwimClub"
+    assert relay.teamName == "Xavier SchoolSwimClub"
+
+    assert resolve_team(db, "Xavier School Swim Club") == "Xavier School Swim Club"
+    db.refresh(swimmer)
+    db.refresh(relay)
+    assert swimmer.team == "Xavier School Swim Club"
+    assert relay.teamName == "Xavier School Swim Club"
 
 
 def test_resolve_team_distinguishes_truly_different_teams():
@@ -107,6 +153,14 @@ def test_resolve_swimmer_keeps_name_collision_separate_by_team():
     s14, _ = resolve_swimmer(db, "Cheong, Megan", 14, "X Lab")
     s17, _ = resolve_swimmer(db, "Cheong, Megan", 17, "Aquatic Performance Swim Club")
     assert s14.id != s17.id
+    assert db.query(Swimmer).count() == 2
+
+
+def test_resolve_swimmer_keeps_unknown_team_name_collision_separate_by_age():
+    db = _test_session()
+    younger, _ = resolve_swimmer(db, "Lee, Alex", 11, None)
+    older, _ = resolve_swimmer(db, "Lee, Alex", 16, None)
+    assert younger.id != older.id
     assert db.query(Swimmer).count() == 2
 
 

@@ -301,7 +301,7 @@ class TeamAlias(Base):
     canonical: Mapped["TeamCanon"] = relationship(back_populates="aliases")
 
     __table_args__ = (
-        UniqueConstraint("teamCanonId", "key", name="TeamAlias_canon_key_uq"),
+        UniqueConstraint("rawName", name="TeamAlias_rawName_uq"),
         Index("TeamAlias_key_idx", "key"),
     )
 

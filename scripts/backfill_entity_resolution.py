@@ -51,7 +51,11 @@ def main() -> int:
             s.teamKey = normalize_team(s.team)
         db.flush()
 
-        # 2. Build the team registry from every distinct raw spelling.
+        # 2. Build the team registry from every distinct raw spelling. This is
+        # the only point at which legacy denormalized values are still source
+        # spellings. After a successful run those columns contain canonical
+        # display values, so a rerun must not record those masters as new raw
+        # aliases. Missing keys are still added defensively for partial/new data.
         raw_teams: set[str] = set()
         for s in swimmers:
             if s.team:
@@ -60,10 +64,20 @@ def main() -> int:
             if rr.teamName:
                 raw_teams.add(rr.teamName)
 
-        canonical_map: dict[str, str] = {}
-        for raw in sorted(raw_teams):
-            canonical_map[raw] = resolve_team(db, raw)
+        existing_keys = {row.key for row in db.query(TeamCanon).all()}
+        if not existing_keys:
+            teams_to_register = raw_teams
+        else:
+            teams_to_register = {raw for raw in raw_teams if normalize_team(raw) not in existing_keys}
+        for raw in sorted(teams_to_register):
+            resolve_team(db, raw)
         db.flush()
+
+        # Build the map only after every spelling has been considered. A later
+        # alias may promote a cleaner master, and all earlier aliases must use
+        # that final value rather than the value returned mid-loop.
+        canon_by_key = {row.key: row.canonicalName for row in db.query(TeamCanon).all()}
+        canonical_map = {raw: canon_by_key[normalize_team(raw)] for raw in raw_teams}
 
         # 3. Re-canonicalize stored team names.
         for s in swimmers:
