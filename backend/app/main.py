@@ -166,6 +166,15 @@ def _time_type_to_round(time_type: str) -> str:
     return mapping.get(time_type, time_type or "Final")
 
 
+def _compute_legacy_result_hash(
+    meet_id: int, event: str, swimmer_name: str, team: str | None,
+    round_name: str | None, time: str | None,
+) -> str:
+    """Return the pre-v2 hash so exact legacy rows can be matched safely."""
+    raw = f"{meet_id}|{event}|{swimmer_name}|{team or ''}|{round_name or ''}|{time or ''}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
 def _compute_result_hash(
     meet_id: int, event: str, swimmer_name: str, team: str | None,
     round_name: str | None, time: str | None, age: int | None = None,
@@ -509,6 +518,29 @@ def _process_parsed_meet(
             # re-imports idempotent even when age/team evidence is too incomplete
             # to safely attach the row to an existing person.
             existing = db.query(Result).filter(Result.contentHash == content_hash).first()
+            if existing is None:
+                # v1 hashes omitted age. Accept a legacy hash only when the linked
+                # swimmer carries exactly the same age evidence, including NULL;
+                # otherwise an age-conflicting row must continue to resolution.
+                legacy_hash = _compute_legacy_result_hash(
+                    meet_id=meet.id,
+                    event=event.event_name,
+                    swimmer_name=pr.name,
+                    team=pr.team,
+                    round_name=round_name,
+                    time=pr.finals_time,
+                )
+                age_match = (
+                    Swimmer.age.is_(None)
+                    if pr.age is None
+                    else Swimmer.age == pr.age
+                )
+                existing = (
+                    db.query(Result)
+                    .join(Swimmer, Result.swimmerId == Swimmer.id)
+                    .filter(Result.contentHash == legacy_hash, age_match)
+                    .first()
+                )
             if existing:
                 duplicates_skipped += 1
                 duplicates_list.append({

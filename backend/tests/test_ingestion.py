@@ -15,7 +15,7 @@ from app.ingestion import (
     record_raw_document,
     start_ingestion_run,
 )
-from app.main import _process_parsed_meet
+from app.main import _compute_legacy_result_hash, _process_parsed_meet
 from app.models import IngestionRun, Meet, ParseJob, RawDocument, Result, SourceReference, Swimmer
 from app.parsers.hytek import parse_hytek_text
 
@@ -241,14 +241,25 @@ Name Age Team Seed Time Finals Time
 Finals
 1 Cheong, Megan 14 X Lab 31.00 30.00"""
     ])
-    conflicting = deepcopy(parsed.events[0].results[0])
-    conflicting.age = 17
-    parsed.events[0].results.append(conflicting)
+    first = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    source = parsed.events[0].results[0]
+    db.query(Result).one().contentHash = _compute_legacy_result_hash(
+        meet.id,
+        parsed.events[0].event_name,
+        source.name,
+        source.team,
+        "Final",
+        source.finals_time,
+    )
+    db.flush()
 
-    processed = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    conflicting = deepcopy(parsed)
+    conflicting.events[0].results[0].age = 17
+    second = _process_parsed_meet(conflicting, meet, datetime(2026, 3, 17), db)
 
-    assert processed[0] == 2
-    assert processed[2] == 0
+    assert first[0] == 1
+    assert second[0] == 1
+    assert second[2] == 0
     assert sorted(s.age for s in db.query(Swimmer).all()) == [14, 17]
     assert db.query(Result).count() == 2
 
@@ -271,6 +282,45 @@ Finals
     parsed.events[0].results[0].age = None
 
     first = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    second = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+
+    assert first[0] == 1
+    assert second[0] == 0
+    assert second[2] == 1
+    assert db.query(Swimmer).count() == 1
+    assert db.query(Result).count() == 1
+
+
+def test_legacy_hash_reimport_with_missing_age_is_idempotent():
+    db = _test_session()
+    meet = Meet(name="Legacy Missing Age", startDate=datetime(2026, 3, 17), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+
+    parsed, _confidence = parse_hytek_text([
+        """Red Dot Aquatics HY-TEK's MEET MANAGER 8.0 - 9:37 AM 18/3/2026 Page 1
+Legacy Missing Age - 17/3/2026
+Results
+Event 101 Boys 9 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+Finals
+1 Gestuvo, Lester 9 Xavier School Swim Club 31.00 30.00"""
+    ])
+    result_source = parsed.events[0].results[0]
+    result_source.age = None
+    first = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+
+    stored = db.query(Result).one()
+    stored.contentHash = _compute_legacy_result_hash(
+        meet.id,
+        parsed.events[0].event_name,
+        result_source.name,
+        result_source.team,
+        "Final",
+        result_source.finals_time,
+    )
+    db.flush()
+
     second = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
 
     assert first[0] == 1
