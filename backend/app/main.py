@@ -168,10 +168,13 @@ def _time_type_to_round(time_type: str) -> str:
 
 def _compute_result_hash(
     meet_id: int, event: str, swimmer_name: str, team: str | None,
-    round_name: str | None, time: str | None,
+    round_name: str | None, time: str | None, age: int | None = None,
 ) -> str:
-    """SHA-256 hash for result deduplication."""
-    raw = f"{meet_id}|{event}|{swimmer_name}|{team or ''}|{round_name or ''}|{time or ''}"
+    """SHA-256 hash for source-result deduplication, including identity age."""
+    raw = (
+        f"v2|{meet_id}|{event}|{swimmer_name}|{team or ''}|{age if age is not None else ''}|"
+        f"{round_name or ''}|{time or ''}"
+    )
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -499,6 +502,7 @@ def _process_parsed_meet(
             content_hash = _compute_result_hash(
                 meet_id=meet.id, event=event.event_name, swimmer_name=pr.name,
                 team=pr.team, round_name=round_name, time=pr.finals_time,
+                age=pr.age,
             )
 
             # Check exact source identity before resolving the swimmer. This keeps

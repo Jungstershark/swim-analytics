@@ -1,5 +1,6 @@
 """Tests for shared ingestion primitives."""
 
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -223,6 +224,33 @@ Finals
     assert second[0] == 0
     assert second[2] == 1
     assert db.query(Result).count() == 1
+
+
+def test_process_parsed_meet_keeps_age_conflicting_results_separate():
+    db = _test_session()
+    meet = Meet(name="Age Collision Test", startDate=datetime(2026, 3, 17), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+
+    parsed, _confidence = parse_hytek_text([
+        """Red Dot Aquatics HY-TEK's MEET MANAGER 8.0 - 9:37 AM 18/3/2026 Page 1
+Age Collision Test - 17/3/2026
+Results
+Event 101 Boys 14 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+Finals
+1 Cheong, Megan 14 X Lab 31.00 30.00"""
+    ])
+    conflicting = deepcopy(parsed.events[0].results[0])
+    conflicting.age = 17
+    parsed.events[0].results.append(conflicting)
+
+    processed = _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+
+    assert processed[0] == 2
+    assert processed[2] == 0
+    assert sorted(s.age for s in db.query(Swimmer).all()) == [14, 17]
+    assert db.query(Result).count() == 2
 
 
 def test_process_parsed_meet_reimport_with_missing_age_is_idempotent():
