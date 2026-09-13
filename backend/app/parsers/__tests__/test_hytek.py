@@ -18,6 +18,7 @@ Tests cover:
 
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -200,6 +201,11 @@ r:+0.67 29.52 1:07.34 (37.82) 1:51.92 (44.58) DQ (33.63)
         assert meet.meet_name == "56th SNAG Seniors"
         assert meet.meet_dates == "17/3/2026 to 22/3/2026"
         assert meet.session == "Day 1 Session 1"
+        assert meet.start_date == date(2026, 3, 17)
+        assert meet.end_date == date(2026, 3, 22)
+        assert meet.day_number == 1
+        assert meet.session_number == 1
+        assert meet.metadata_conflicts == []
 
     def test_single_day_meet_metadata(self):
         """Some HY-TEK PDFs use one meet date instead of a date range."""
@@ -214,8 +220,240 @@ Name Age Team Seed Time Finals Time
 
         assert meet.meet_name == "SAQ Emerging Talents Championships 2026"
         assert meet.meet_dates == "31/5/2026"
+        assert meet.start_date == date(2026, 5, 31)
+        assert meet.end_date == date(2026, 5, 31)
+        assert meet.day_number is None
+        assert meet.session_number is None
         assert confidence.checks["meet_name"] is True
         assert confidence.checks["meet_dates"] is True
+
+    def test_bare_results_keeps_day_and_session_unknown(self):
+        page = """HY-TEK's MEET MANAGER 8.0 Page 1
+Single Day Meet - 31/5/2026
+Results
+Event 1 Boys 10 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 10 Example Club 31.00 30.00"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.session is None
+        assert meet.day_number is None
+        assert meet.session_number is None
+        assert confidence.checks["session_metadata"] is True
+
+    def test_malformed_date_is_not_treated_as_resolved(self):
+        page = """HY-TEK's MEET MANAGER 8.0 Page 1
+Broken Meet - 31/2/2026
+Results - Day 1 Session 1
+Event 1 Boys 10 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 10 Example Club 31.00 30.00"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_dates == "31/2/2026"
+        assert meet.start_date is None
+        assert meet.end_date is None
+        assert confidence.checks["meet_dates"] is False
+
+    def test_repeated_identical_headers_are_consistent(self):
+        first_page = self.SAMPLE_PAGE
+        second_page = """HY-TEK's MEET MANAGER 8.0 Page 2
+56th SNAG Seniors - 17/3/2026 to 22/3/2026
+Results - Day 1 Session 1"""
+
+        meet, confidence = parse_hytek_text([first_page, second_page])
+
+        assert meet.metadata_conflicts == []
+        assert confidence.checks["metadata_consistent"] is True
+
+    def test_conflicting_page_headers_are_held(self):
+        first_page = self.SAMPLE_PAGE
+        second_page = """HY-TEK's MEET MANAGER 8.0 Page 2
+56th SNAG Seniors - 17/3/2026 to 22/3/2026
+Results - Day 2 Session 3"""
+
+        meet, confidence = parse_hytek_text([first_page, second_page])
+
+        assert meet.day_number is None
+        assert meet.session_number is None
+        assert meet.metadata_conflicts
+        assert confidence.checks["metadata_consistent"] is False
+
+    def test_session_conflict_is_sticky_and_fails_critical_confidence(self):
+        pages = [
+            "Example Meet - 1/6/2026 to 2/6/2026\nResults - Day 1 Session 1",
+            "Example Meet - 1/6/2026 to 2/6/2026\nResults - Day 2 Session 2",
+            """Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 2 Session 2
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50""",
+        ]
+
+        meet, confidence = parse_hytek_text(pages)
+
+        assert meet.session is None
+        assert meet.day_number is None
+        assert meet.session_number is None
+        assert meet.metadata_conflicts
+        assert confidence.score >= 0.6
+        assert confidence.passed is False
+
+    def test_non_positive_day_or_session_fails_closed(self):
+        for label in ("Day 0 Session 1", "Day 1 Session 0"):
+            meet, confidence = parse_hytek_text([f"""Example Meet - 1/6/2026
+Results - {label}
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""])
+
+            assert confidence.checks["positive_day_session"] is False
+            assert confidence.passed is False
+
+    def test_individual_exhibition_time_is_parsed_without_split_bleed(self):
+        page = """Singapore Short Course Invitational 2026 - 1/6/2026 to 2/6/2026
+Results - Day 2 Session 3
+Event 24 Men 200 SC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Wong, Example 17 Example Club 1:48.00 1:46.00
+r:+0.60 25.00 51.00 (26.00) 1:17.50 (26.50) 1:46.00 (28.50)
+--- Lim, Glen 17 Example Club 1:50.00 X1:47.30
+r:+0.61 25.20 51.40 (26.20) 1:18.10 (26.70) 1:47.30 (29.20)"""
+
+        meet, confidence = parse_hytek_text([page])
+        results = meet.events[0].results
+
+        assert [result.name for result in results] == ["Wong, Example", "Lim, Glen"]
+        assert results[0].finals_time == "1:46.00"
+        assert len(results[0].splits) == 4
+        assert results[1].finals_time == "1:47.30"
+        assert results[1].is_guest is True
+        assert len(results[1].splits) == 4
+        assert confidence.passed is True
+
+    def test_malformed_relay_legs_are_quarantined_not_exposed_as_swimmers(self):
+        page = """Example Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 117 Mixed 11-12 200 LC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 2:20.00 2:17.00
+1) Ee, Emma W12 2) r:0.35 Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan Royston M11 4) r:0.27 Lim, Le Jin M12
+r:+0.56 35.91 1:11.60 (35.69) 1:43.45 (31.85) 2:17.00 (33.55)"""
+
+        meet, confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+
+        assert relay.leg_parse_status == "partial"
+        assert relay.leg_parse_warning
+        assert all(5 <= leg.age <= 100 for leg in relay.legs if leg.age is not None)
+        assert all("r:" not in leg.name and not any(char.isdigit() for char in leg.name) for leg in relay.legs)
+        assert confidence.checks["relay_leg_integrity"] is True
+        assert confidence.passed is True
+
+    @pytest.mark.parametrize(
+        ("relay_line", "corrupted_name"),
+        [
+            (
+                "1) Flosi, Kamryn 18 2) r:0.33 Sim, Si Xuan Rianne 16 "
+                "3) r:0.28 Wong, Rachel, Zhuo Xuan 41)5 r:0.08 Lai, Kaelyn Edla 14",
+                "Wong, Rachel, Zhuo Xuan",
+            ),
+            (
+                "1) Loh Jing, Jairus Kaiser 16 2) r:0.34 Tan, Benjamin 17 "
+                "3) r:0.50 Lim, Zhe Quan Lawrence 146) r:0.13 Teo, Bo Xuan 17",
+                "Lim, Zhe Quan Lawrence",
+            ),
+        ],
+    )
+    def test_relay_column_overlap_does_not_promote_next_leg_number_as_age(
+        self, relay_line, corrupted_name
+    ):
+        page = f"""Singapore Short Course Invitational 2026 - 29/8/2026 to 30/8/2026
+Results - Day 2 Session 4
+Event 107 Women 200 SC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 1:50.00 1:47.00
+{relay_line}
+r:+0.60 25.00 52.00 (27.00) 1:19.00 (27.00) 1:47.00 (28.00)"""
+
+        meet, confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+
+        assert corrupted_name not in {leg.name for leg in relay.legs}
+        assert relay.leg_parse_status == "partial"
+        assert relay.leg_parse_warning
+        assert confidence.passed is True
+
+    @pytest.mark.parametrize(
+        ("source_value", "expected_status"),
+        [
+            ("23.50", "finished"),
+            ("DQ", "dq"),
+            ("NS", "ns"),
+            ("DNS", "dns"),
+            ("DNF", "dnf"),
+            ("SCR", "scratched"),
+        ],
+    )
+    def test_individual_result_status_is_preserved(self, source_value, expected_status):
+        page = f"""Status Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+--- Example, Athlete 20 Example Club 24.00 {source_value}"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.events[0].results[0].status == expected_status
+
+    @pytest.mark.parametrize(
+        ("source_value", "expected_status"),
+        [("1:39.00", "finished"), ("DQ", "dq"), ("DNS", "dns"), ("DNF", "dnf"), ("SCR", "scratched")],
+    )
+    def test_relay_result_status_is_preserved(self, source_value, expected_status):
+        page = f"""Status Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 2 Men 200 LC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+--- Example Club A 1:40.00 {source_value}"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.events[0].relay_results[0].status == expected_status
+
+    def test_relay_round_headers_distinguish_final_from_timed_final(self):
+        page = """Round Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 10 Men 200 LC Meter Freestyle Relay
+Team Relay Prelim Time Finals Time
+1 Final Club A 1:40.00 1:39.00
+Event 11 Men 200 LC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Timed Club A 1:42.00 1:41.00"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.events[0].relay_results[0].time_type == "Finals Time"
+        assert meet.events[1].relay_results[0].time_type == "Timed Final"
+
+    def test_relay_distance_is_total_and_leg_distance_is_explicit(self):
+        page = """Relay Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 3 Mixed 11-12 4x50 SC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 1:50.00 1:45.00
+1) One, Alpha W12 2) Two, Beta M12 3) Three, Gamma W11 4) Four, Delta M11
+r:+0.50 25.00 51.00 (26.00) 1:18.00 (27.00) 1:45.00 (27.00)"""
+
+        meet, _confidence = parse_hytek_text([page])
+        event = meet.events[0]
+
+        assert event.distance == 200
+        assert event.relay_count == 4
+        assert event.leg_distance == 50
+        assert [split.distance for split in event.relay_results[0].splits] == [50, 100, 150, 200]
 
     def test_event_parsed(self):
         meet, _confidence = parse_hytek_text([self.SAMPLE_PAGE])

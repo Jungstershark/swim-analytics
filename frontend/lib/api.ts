@@ -7,6 +7,21 @@
 
 const API_BASE = "/api";
 
+export type ResultStatus = "finished" | "dq" | "ns" | "dns" | "dnf" | "scratched" | "unknown";
+
+export function resultStatusLabel(status: ResultStatus, isDq = false): string | null {
+  if (isDq || status === "dq") return "DQ";
+  if (status === "ns") return "NS";
+  if (status === "dns") return "DNS";
+  if (status === "dnf") return "DNF";
+  if (status === "scratched") return "SCR";
+  return null;
+}
+
+export function resultDisplayValue(status: ResultStatus, time: string | null, isDq = false): string {
+  return resultStatusLabel(status, isDq) || time || "--";
+}
+
 /**
  * Clean display name — strip placeholder surnames like "., " from single-name swimmers.
  */
@@ -89,6 +104,7 @@ export interface ResultBrief {
   seed_time: string | null;
   placement: number | null;
   is_dq: boolean;
+  status: ResultStatus;
   dq_code: string | null;
   dq_description: string | null;
   is_guest: boolean;
@@ -118,6 +134,7 @@ export interface PreviewResultRow {
   round: string;
   placement: number | null;
   is_dq: boolean;
+  status: ResultStatus;
   is_guest: boolean;
   qualifier: string | null;
 }
@@ -328,10 +345,16 @@ export interface BrowserIndividualRow {
   time: string | null;
   seed_time: string | null;
   is_dq: boolean;
+  status: ResultStatus;
   dq_code: string | null;
   dq_description: string | null;
   is_guest: boolean;
   qualifier: string | null;
+  splits: {
+    distance: number | null;
+    cumulative: string | null;
+    split: string | null;
+  }[];
   swimmer: BrowserSwimmerBrief | null;
   meet: BrowserMeetBrief | null;
   source: BrowserSourceInfo;
@@ -361,9 +384,12 @@ export interface BrowserRelayRow {
   time: string | null;
   seed_time: string | null;
   is_dq: boolean;
+  status: ResultStatus;
   team_name: string;
   relay_letter: string | null;
   is_exhibition: boolean;
+  leg_parse_status: "complete" | "partial" | "unavailable" | null;
+  leg_parse_warning: string | null;
   legs: BrowserRelayLeg[];
   meet: BrowserMeetBrief | null;
   source: BrowserSourceInfo;
@@ -389,6 +415,24 @@ export interface BrowserSwimmerDetail {
     normalization_status: string;
     result_count: number;
     results: BrowserIndividualRow[];
+  }[];
+  course_history: {
+    course: "LCM" | "SCM" | "Unknown";
+    event_count: number;
+    events: {
+      course: "LCM" | "SCM" | "Unknown";
+      distance_m: number | null;
+      stroke: string | null;
+      event: string;
+      canonical_event_key: string;
+      normalization_status: string;
+      source_event_labels: string[];
+      performance_count: number;
+      finished_performance_count: number;
+      fastest_recorded: BrowserIndividualRow | null;
+      split_coverage: { available: number; total: number };
+      performances: BrowserIndividualRow[];
+    }[];
   }[];
   relay_history: BrowserRelayRow[];
   warnings: BrowserWarning[];
@@ -591,9 +635,12 @@ export interface RelayResultBrief {
   seed_time: string | null;
   placement: number | null;
   is_dq: boolean;
+  status: ResultStatus;
   is_exhibition: boolean;
   round: string | null;
   swim_date: string | null;
+  leg_parse_status?: "complete" | "partial" | "unavailable" | null;
+  leg_parse_warning?: string | null;
   legs: RelayLegBrief[];
   meet: MeetBrief;
 }
@@ -606,6 +653,7 @@ export interface CombinedResultItem {
   seed_time: string | null;
   placement: number | null;
   is_dq: boolean;
+  status: ResultStatus;
   round: string | null;
   swim_date: string | null;
   qualifier: string | null;

@@ -5,6 +5,8 @@ import {
   previewUpload,
   uploadResults,
   displayName,
+  resultDisplayValue,
+  resultStatusLabel,
   type UploadPreviewResponse,
   type UploadResponse,
 } from "@/lib/api";
@@ -392,15 +394,15 @@ export default function UploadPage() {
                                     <td className="px-4 py-2 text-sm text-gray-500 hidden md:table-cell">{r.team}</td>
                                     <td className="px-4 py-2 text-right text-sm font-mono text-gray-400">{r.seed_time || "--"}</td>
                                     <td className="px-4 py-2 text-right">
-                                      {r.is_dq ? (
-                                        <span className="text-xs font-semibold text-red-600">DQ</span>
-                                      ) : (
-                                        <span className="text-sm font-mono font-bold text-ssa-navy">{r.time || "--"}</span>
-                                      )}
+                                      <span className="text-sm font-mono font-bold text-ssa-navy">
+                                        {resultDisplayValue(r.status, r.time, r.is_dq)}
+                                      </span>
                                     </td>
                                     <td className="px-4 py-2 text-center">
-                                      {r.is_dq ? (
-                                        <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">DQ</span>
+                                      {resultStatusLabel(r.status, r.is_dq) ? (
+                                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.status === "dq" || r.is_dq ? "text-red-600 bg-red-100" : "text-amber-700 bg-amber-100"}`}>
+                                          {resultStatusLabel(r.status, r.is_dq)}
+                                        </span>
                                       ) : r.qualifier ? (
                                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                                           r.qualifier === "qMTS" ? "bg-ssa-teal/10 text-ssa-teal" : "bg-blue-50 text-blue-700"

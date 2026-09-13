@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   displayName,
+  resultDisplayValue,
   getBrowserSwimmer,
   type BrowserSwimmerDetail,
   type BrowserIndividualRow,
@@ -17,9 +18,15 @@ export default function SwimmerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openEvent, setOpenEvent] = useState<string | null>(null);
+  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!swimmerId) return;
+    if (!Number.isInteger(swimmerId) || swimmerId <= 0) {
+      setDetail(null);
+      setError("Swimmer not found");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     getBrowserSwimmer(swimmerId)
@@ -42,6 +49,7 @@ export default function SwimmerProfilePage() {
   }
 
   const swimmer = detail.swimmer;
+  const activeCourse = detail.course_history.find((group) => group.course === selectedCourse) || detail.course_history[0];
 
   return (
     <div className="min-h-screen">
@@ -86,62 +94,73 @@ export default function SwimmerProfilePage() {
         )}
 
         <section>
-          <h2 className="text-lg font-semibold text-ssa-navy mb-4">Personal bests</h2>
-          {detail.personal_bests.length === 0 ? (
-            <div className="card p-6 text-sm text-gray-400 text-center">No PBs from parseable non-DQ individual times yet.</div>
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-ssa-navy">Recorded performance history</h2>
+              <p className="text-sm text-gray-500 mt-1">Choose the pool course, then open an event to follow competition-by-competition progress.</p>
+            </div>
+            <div className="flex flex-wrap gap-2" aria-label="Pool course">
+              {detail.course_history.map((group) => {
+                const isSelected = activeCourse?.course === group.course;
+                return (
+                  <button
+                    key={group.course}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => {
+                      setSelectedCourse(group.course);
+                      setOpenEvent(null);
+                    }}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${isSelected ? "bg-ssa-navy text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-ssa-teal"}`}
+                  >
+                    {group.course} <span className={isSelected ? "text-white/70" : "text-gray-400"}>{group.event_count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {!activeCourse ? (
+            <div className="card p-6 text-sm text-gray-400 text-center">No recorded individual performances yet.</div>
           ) : (
-            <div className="card overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-ssa-navy">
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase">Event</th>
-                      <th scope="col" className="px-4 py-3 text-right text-xs font-semibold text-gray-300 uppercase w-28">Best</th>
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase hidden md:table-cell">Meet</th>
-                      <th scope="col" className="px-4 py-3 text-right text-xs font-semibold text-gray-300 uppercase w-28">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {detail.personal_bests.map((pb) => (
-                      <tr key={pb.event} className="hover:bg-ssa-teal/5">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-700">{pb.event}</td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{pb.time}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">{pb.meet?.name || "-"}</td>
-                        <td className="px-4 py-3 text-right text-xs text-gray-400">{pb.date || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="grid gap-3">
+              {activeCourse.events.map((event) => {
+                const isOpen = openEvent === event.canonical_event_key;
+                return (
+                  <div key={event.canonical_event_key} className="card overflow-hidden">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenEvent(isOpen ? null : event.canonical_event_key)}
+                      className="w-full p-4 flex items-center justify-between gap-4 text-left hover:bg-ssa-teal/5"
+                    >
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-ssa-navy">{event.event}</h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {event.performance_count} recorded {event.performance_count === 1 ? "swim" : "swims"}
+                          {event.split_coverage.available > 0 ? ` · splits for ${event.split_coverage.available}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right">
+                          <div className="text-[10px] uppercase tracking-wide text-gray-400">Fastest recorded</div>
+                          <div className="font-mono font-bold text-ssa-navy">{event.fastest_recorded?.time || "—"}</div>
+                        </div>
+                        <span className="text-sm text-ssa-teal hidden sm:inline">{isOpen ? "Hide" : "View history"}</span>
+                      </div>
+                    </button>
+                    {isOpen && <IndividualRows rows={event.performances} />}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-ssa-navy mb-4">Event history</h2>
-          <div className="grid gap-3">
-            {detail.event_history.map((group) => {
-              const isOpen = openEvent === group.event_key;
-              return (
-                <div key={group.event_key} className="card overflow-hidden">
-                  <button onClick={() => setOpenEvent(isOpen ? null : group.event_key)} className="w-full p-4 flex items-center justify-between text-left hover:bg-ssa-teal/5">
-                    <div>
-                      <h3 className="font-semibold text-ssa-navy">{group.event}</h3>
-                      <p className="text-xs text-gray-400">{group.result_count} swims · derived · {group.normalization_status}</p>
-                    </div>
-                    <span className="text-sm text-ssa-teal">{isOpen ? "Hide" : "Show"}</span>
-                  </button>
-                  {isOpen && <IndividualRows rows={group.results} />}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section>
           <h2 className="text-lg font-semibold text-ssa-navy mb-4">Relay participation</h2>
           {detail.relay_history.length === 0 ? (
-            <div className="card p-6 text-sm text-gray-400 text-center">No relay rows linked to this swimmer yet.</div>
+            <div className="card p-6 text-sm text-gray-400 text-center">No relay performances linked to this swimmer yet.</div>
           ) : (
             <div className="grid gap-3">
               {detail.relay_history.map((relay) => <RelayCard key={relay.id} relay={relay} />)}
@@ -155,34 +174,89 @@ export default function SwimmerProfilePage() {
 
 function IndividualRows({ rows }: { rows: BrowserIndividualRow[] }) {
   return (
-    <div className="border-t border-gray-100 overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="bg-gray-50">
-            <th scope="col" className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Meet</th>
-            <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Round</th>
-            <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Place</th>
-            <th scope="col" className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Time</th>
-            <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Source</th>
-            <th scope="col" className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Date</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map((row) => (
-            <tr key={row.id} className={`hover:bg-gray-50 ${row.warnings.length > 0 ? "bg-amber-50/40" : ""}`}>
-              <td className="px-4 py-3 text-sm text-gray-500">
-                {row.meet ? <a href={`/meets/${row.meet.id}/events/${row.event_key}`} className="text-ssa-teal hover:underline">{row.meet.name}</a> : "-"}
-                {row.warnings.length > 0 && <div className="mt-1 text-xs text-amber-700">{row.warnings.map((w) => w.message).join(" · ")}</div>}
-              </td>
-              <td className="px-4 py-3 text-center text-xs text-gray-500">{row.round || "-"}</td>
-              <td className="px-4 py-3 text-center text-sm text-gray-600">{row.placement ?? "--"}</td>
-              <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{row.is_dq ? "DQ" : row.time || "--"}</td>
-              <td className="px-4 py-3 text-center"><SourceBadge linked={Boolean(row.source.document_sha256)} /></td>
-              <td className="px-4 py-3 text-right text-xs text-gray-400">{row.swim_date || "-"}</td>
+    <div className="border-t border-gray-100">
+      <div className="sm:hidden divide-y divide-gray-100" data-testid="mobile-history-rows">
+        {rows.map((row) => (
+          <article key={row.id} className={`p-4 space-y-3 ${row.warnings.length > 0 ? "bg-amber-50/40" : "bg-white"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">Meet</div>
+                <div className="text-sm text-gray-600 break-words">
+                  {row.meet ? <a href={`/meets/${row.meet.id}/events/${row.event_key}`} className="text-ssa-teal hover:underline">{row.meet.name}</a> : "-"}
+                </div>
+                <div className="mt-1 text-xs text-gray-400">{row.swim_date || "Date unavailable"}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">Time</div>
+                <div className="font-mono font-bold text-ssa-navy">{resultDisplayValue(row.status, row.time, row.is_dq)}</div>
+              </div>
+            </div>
+            <dl className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded bg-gray-50 p-2">
+                <dt className="text-[10px] uppercase tracking-wide text-gray-400">Round</dt>
+                <dd className="mt-1 text-xs text-gray-600">{row.round || "-"}</dd>
+              </div>
+              <div className="rounded bg-gray-50 p-2">
+                <dt className="text-[10px] uppercase tracking-wide text-gray-400">Place</dt>
+                <dd className="mt-1 text-sm text-gray-600">{row.placement ?? "--"}</dd>
+              </div>
+              <div className="rounded bg-gray-50 p-2">
+                <dt className="text-[10px] uppercase tracking-wide text-gray-400">Source</dt>
+                <dd className="mt-1"><SourceBadge linked={Boolean(row.source.document_sha256)} /></dd>
+              </div>
+            </dl>
+            {row.splits.length > 0 && (
+              <div className="flex flex-wrap gap-1" aria-label="Official splits">
+                {row.splits.map((split, index) => (
+                  <span key={`${row.id}-mobile-split-${index}`} className="rounded bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800">
+                    {split.distance ? `${split.distance}m ` : ""}{split.cumulative || split.split || "—"}
+                  </span>
+                ))}
+              </div>
+            )}
+            {row.warnings.length > 0 && <div className="text-xs text-amber-700">{row.warnings.map((w) => w.message).join(" · ")}</div>}
+          </article>
+        ))}
+      </div>
+
+      <div className="hidden sm:block overflow-x-auto" data-testid="desktop-history-table">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50">
+              <th scope="col" className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Meet</th>
+              <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Round</th>
+              <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Place</th>
+              <th scope="col" className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Time</th>
+              <th scope="col" className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Source</th>
+              <th scope="col" className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Date</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((row) => (
+              <tr key={row.id} className={`hover:bg-gray-50 ${row.warnings.length > 0 ? "bg-amber-50/40" : ""}`}>
+                <td className="px-4 py-3 text-sm text-gray-500">
+                  {row.meet ? <a href={`/meets/${row.meet.id}/events/${row.event_key}`} className="text-ssa-teal hover:underline">{row.meet.name}</a> : "-"}
+                  {row.splits.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1" aria-label="Official splits">
+                      {row.splits.map((split, index) => (
+                        <span key={`${row.id}-split-${index}`} className="rounded bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800">
+                          {split.distance ? `${split.distance}m ` : ""}{split.cumulative || split.split || "—"}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {row.warnings.length > 0 && <div className="mt-1 text-xs text-amber-700">{row.warnings.map((w) => w.message).join(" · ")}</div>}
+                </td>
+                <td className="px-4 py-3 text-center text-xs text-gray-500">{row.round || "-"}</td>
+                <td className="px-4 py-3 text-center text-sm text-gray-600">{row.placement ?? "--"}</td>
+                <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{resultDisplayValue(row.status, row.time, row.is_dq)}</td>
+                <td className="px-4 py-3 text-center"><SourceBadge linked={Boolean(row.source.document_sha256)} /></td>
+                <td className="px-4 py-3 text-right text-xs text-gray-400">{row.swim_date || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -200,14 +274,14 @@ function RelayCard({ relay }: { relay: BrowserRelayRow }) {
           <div className="mt-2 flex flex-wrap gap-2">
             {relay.legs.map((leg) => (
               <span key={`${relay.id}-${leg.leg_number}`} className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                {leg.leg_number}. {leg.swimmer_name}{leg.split_time ? ` (${leg.split_time})` : ""} · {leg.identity_match_confidence} via {leg.matched_by}
+                {leg.leg_number}. {leg.swimmer_name}{leg.split_time ? ` (${leg.split_time})` : ""}
               </span>
             ))}
           </div>
           {relay.warnings.length > 0 && <p className="mt-2 text-xs text-amber-700">{relay.warnings.map((w) => w.message).join(" · ")}</p>}
         </div>
         <div className="text-right shrink-0">
-          <div className="font-mono font-bold text-ssa-navy">{relay.is_dq ? "DQ" : relay.time || "--"}</div>
+          <div className="font-mono font-bold text-ssa-navy">{resultDisplayValue(relay.status, relay.time, relay.is_dq)}</div>
           <div className="text-xs text-gray-400">Place {relay.placement ?? "--"}</div>
         </div>
       </div>

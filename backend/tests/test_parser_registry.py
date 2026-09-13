@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from app.parsers.base import DetectionResult, ResultParser, detect_parser
+from app.parsers.base import DetectionResult, HyTekParser, ResultParser, detect_parser
+
+
+def test_hytek_parser_provenance_is_v2():
+    assert HyTekParser().parser_version == "hytek-v2"
 
 
 class FakeParser(ResultParser):

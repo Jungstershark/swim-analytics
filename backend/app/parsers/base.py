@@ -85,6 +85,10 @@ class HyTekParser(ResultParser):
     def format_name(self) -> str:
         return "hytek"
 
+    @property
+    def parser_version(self) -> str:
+        return "hytek-v2"
+
     def can_parse(self, file_path: Path) -> bool:
         if not str(file_path).lower().endswith(".pdf"):
             return False

@@ -1,26 +1,72 @@
 {
   "index_url": "https://www.sgaquatics.org.sg/swimming/events/event-results/",
-  "discovered_at": "2026-07-18T17:13:13.776327+00:00",
+  "discovered_at": "2026-09-13T05:40:48.031892+00:00",
   "event_count": 10,
   "status_counts": {
-    "documents_available_no_results": 1,
-    "results_available": 9
+    "results_available": 10
   },
   "events": [
     {
       "title": "Singapore Short-Course Invitational 2026",
       "url": "https://www.sgaquatics.org.sg/ssci26/",
       "page_title": "Singapore Short-Course Invitational 2026",
-      "status": "documents_available_no_results",
-      "pdf_count": 1,
+      "status": "results_available",
+      "pdf_count": 10,
       "category_counts": {
-        "event_information": 1
+        "event_information": 1,
+        "start_list": 4,
+        "overall_results": 5
       },
       "pdfs": [
         {
-          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/06/Spore-Short-Course-Invitational-2026-Info-Pack-26062026.pdf",
-          "filename": "Spore-Short-Course-Invitational-2026-Info-Pack-26062026.pdf",
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/Spore-Short-Course-Invitational-2026-Info-Pack-190826.pdf",
+          "filename": "Spore-Short-Course-Invitational-2026-Info-Pack-190826.pdf",
           "category": "event_information"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/saq-scm-invitational-2026-start-list-day-1-session-1.pdf",
+          "filename": "saq-scm-invitational-2026-start-list-day-1-session-1.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/saq-scm-invitational-2026-start-list-day-1-session-2-v2.pdf",
+          "filename": "saq-scm-invitational-2026-start-list-day-1-session-2-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/saq-scm-invitational-2026-start-list-day-2-session-3-v3.pdf",
+          "filename": "saq-scm-invitational-2026-start-list-day-2-session-3-v3.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/saq-scm-invitational-2026-start-list-day-2-session-4-v2.pdf",
+          "filename": "saq-scm-invitational-2026-start-list-day-2-session-4-v2.pdf",
+          "category": "start_list"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/day-1-session-1-full-results.pdf",
+          "filename": "day-1-session-1-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/day-1-session-2-full-results.pdf",
+          "filename": "day-1-session-2-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/day-2-session-3-full-results.pdf",
+          "filename": "day-2-session-3-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/day-2-session-4-full-results.pdf",
+          "filename": "day-2-session-4-full-results.pdf",
+          "category": "overall_results"
+        },
+        {
+          "url": "https://www.sgaquatics.org.sg/app/uploads/2026/08/snscni-full-results.pdf",
+          "filename": "snscni-full-results.pdf",
+          "category": "overall_results"
         }
       ]
     },

@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,7 @@ class ParsedResult:
     qualifier: Optional[str]       # "qMTS", "MTS", or None
     reaction_time: Optional[str]   # e.g. "+0.66"
     splits: list[Split] = field(default_factory=list)
+    status: str = "unknown"        # finished, dq, ns, dns, dnf, scratched, unknown
 
 
 @dataclass
@@ -65,6 +67,8 @@ class ParsedEvent:
     is_relay: bool = False
     results: list[ParsedResult] = field(default_factory=list)
     relay_results: list["ParsedRelayResult"] = field(default_factory=list)
+    relay_count: Optional[int] = None
+    leg_distance: Optional[int] = None
 
 
 @dataclass
@@ -96,6 +100,9 @@ class ParsedRelayResult:
     reaction_time: Optional[str] = None
     splits: list[Split] = field(default_factory=list)
     legs: list[ParsedRelayLeg] = field(default_factory=list)
+    leg_parse_status: str = "complete"
+    leg_parse_warning: Optional[str] = None
+    status: str = "unknown"        # finished, dq, ns, dns, dnf, scratched, unknown
 
 
 @dataclass
@@ -104,6 +111,11 @@ class ParsedMeet:
     meet_name: str                 # e.g. "56th SNAG Seniors"
     meet_dates: Optional[str]      # e.g. "17/3/2026 to 22/3/2026"
     session: Optional[str]         # e.g. "Day 1 Session 1"
+    start_date: date | None = None
+    end_date: date | None = None
+    day_number: int | None = None
+    session_number: int | None = None
+    metadata_conflicts: list[str] = field(default_factory=list)
     events: list[ParsedEvent] = field(default_factory=list)
 
     @property
@@ -134,8 +146,32 @@ RE_MEET_HEADER = re.compile(
     r"^(.+?)\s*-\s*(\d{1,2}/\d{1,2}/\d{4}(?:\s+to\s+\d{1,2}/\d{1,2}/\d{4})?)$"
 )
 
-# Session line: "Results - Day 1 Session 1"
-RE_SESSION = re.compile(r"^Results\s*-\s*(.+)$")
+# Session line: "Results - Day 1 Session 1". Bare "Results" is valid but
+# intentionally carries no day/session evidence.
+RE_SESSION = re.compile(
+    r"^Results\s*-\s*Day\s+(\d+)\s+Session\s+(\d+)\s*$",
+    re.IGNORECASE,
+)
+RE_BARE_RESULTS = re.compile(r"^Results\s*$", re.IGNORECASE)
+
+
+def parse_meet_date_range(raw_value: str) -> tuple[date | None, date | None]:
+    """Parse a HY-TEK day-first date or inclusive date range.
+
+    Invalid calendar values remain unresolved instead of being replaced with a
+    current timestamp.
+    """
+    parts = [part.strip() for part in raw_value.split(" to ")]
+    if len(parts) not in {1, 2}:
+        return None, None
+    try:
+        start = datetime.strptime(parts[0], "%d/%m/%Y").date()
+        end = datetime.strptime(parts[-1], "%d/%m/%Y").date()
+    except ValueError:
+        return None, None
+    if end < start:
+        return None, None
+    return start, end
 
 # Event header: "Event 101 Boys 13-14 200 LC Meter IM"
 RE_EVENT_HEADER = re.compile(
@@ -182,7 +218,7 @@ RE_RESULT_LINE = re.compile(
     r"(\d{1,2})\s+"           # age
     r"(.+?)\s+"               # team
     r"([\d:]+\.[\d]+|NT)\s+"  # seed time or NT
-    r"([\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)" # finals time or status
+    r"(X?[\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)" # finals time/status; X marks exhibition
     r"(?:\s+(qMTS|MTS))?"     # optional qualifier
 )
 
@@ -215,7 +251,10 @@ RE_RELAY_LEG = re.compile(
     r"(\d)\)\s+"                       # leg number
     r"(?:r:([\d.-]+)\s+)?"             # optional reaction time
     r"(\*?)([^,]+,\s*\S.*?)\s+"        # guest marker + name
-    r"(?:([MW])?(\d{1,2}))"            # optional gender marker + age
+    # Reject an age immediately fused to another ordinal marker (for example
+    # ``41)5`` or ``146)`` from overlapping PDF columns). Otherwise the next
+    # leg number can be consumed as part of a plausible but false age.
+    r"(?:([MW])?(\d{1,2}))(?!\d?\))"   # optional gender marker + age
 )
 
 # DQ code line: "SW 7.4c Hands brought back beyond..."
@@ -290,6 +329,7 @@ def parse_event_name(event_name: str) -> dict:
     info: dict = {
         "gender": None, "age_group": None,
         "distance": None, "stroke": None, "course": "LC",
+        "relay_count": None, "leg_distance": None,
     }
 
     # Gender
@@ -303,10 +343,20 @@ def parse_event_name(event_name: str) -> dict:
     if m:
         info["age_group"] = m.group(1)
 
-    # Distance
-    m = re.search(r"(\d+)\s+[LS]C\s+Meter", event_name)
-    if m:
-        info["distance"] = int(m.group(1))
+    # Distance. HY-TEK may print relays as either "4x50" or their total
+    # distance ("200 ... Relay"). Canonical distance is always the total.
+    relay_distance = re.search(r"(\d+)\s*[xX]\s*(\d+)\s+[LS]C\s+Meter", event_name)
+    if relay_distance:
+        info["relay_count"] = int(relay_distance.group(1))
+        info["leg_distance"] = int(relay_distance.group(2))
+        info["distance"] = info["relay_count"] * info["leg_distance"]
+    else:
+        m = re.search(r"(\d+)\s+[LS]C\s+Meter", event_name)
+        if m:
+            info["distance"] = int(m.group(1))
+            if "Relay" in event_name and info["distance"] % 4 == 0:
+                info["relay_count"] = 4
+                info["leg_distance"] = info["distance"] // 4
 
     # Course
     if "SC Meter" in event_name:
@@ -337,6 +387,25 @@ def time_to_seconds(time_str: str) -> Optional[float]:
         return float(time_str)
     except (ValueError, IndexError):
         return None
+
+
+RESULT_STATUS_MAP = {
+    "DQ": "dq",
+    "NS": "ns",
+    "DNS": "dns",
+    "DNF": "dnf",
+    "SCR": "scratched",
+}
+
+
+def normalize_result_status(source_value: str | None) -> str:
+    """Map an official HY-TEK result token to the canonical status vocabulary."""
+    if not source_value:
+        return "unknown"
+    normalized = source_value.strip().upper()
+    if normalized in RESULT_STATUS_MAP:
+        return RESULT_STATUS_MAP[normalized]
+    return "finished" if time_to_seconds(normalized.removeprefix("X")) is not None else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +535,12 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
     meet_name = ""
     meet_dates = None
     session = None
+    start_date = None
+    end_date = None
+    day_number = None
+    session_number = None
+    session_conflicted = False
+    metadata_conflicts: list[str] = []
     events: list[ParsedEvent] = []
     total_lines = 0
     classified_lines = 0
@@ -496,18 +571,58 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             if RE_PAGE_HEADER.search(line):
                 continue
 
-            # Meet name + dates
-            if not meet_name:
-                m = RE_MEET_HEADER.match(line)
-                if m:
-                    meet_name = m.group(1).strip()
-                    meet_dates = m.group(2).strip()
-                    continue
+            # Meet name + dates. HY-TEK repeats these on every page; repeated
+            # values corroborate the first observation while disagreements hold
+            # typed metadata as unresolved.
+            m = RE_MEET_HEADER.match(line)
+            if m:
+                observed_name = m.group(1).strip()
+                observed_dates = m.group(2).strip()
+                observed_start, observed_end = parse_meet_date_range(observed_dates)
+                if not meet_name:
+                    meet_name = observed_name
+                    meet_dates = observed_dates
+                    start_date = observed_start
+                    end_date = observed_end
+                elif (observed_name, observed_dates) != (meet_name, meet_dates):
+                    metadata_conflicts.append(
+                        f"Conflicting meet header: {observed_name} - {observed_dates}"
+                    )
+                    start_date = None
+                    end_date = None
+                continue
 
             # Session
             m = RE_SESSION.match(line)
             if m:
-                session = m.group(1).strip()
+                observed_day = int(m.group(1))
+                observed_session = int(m.group(2))
+                observed_label = f"Day {observed_day} Session {observed_session}"
+                if observed_day <= 0 or observed_session <= 0:
+                    if not session_conflicted:
+                        metadata_conflicts.append(
+                            f"Day and session numbers must be positive: {observed_label}"
+                        )
+                    session_conflicted = True
+                    session = None
+                    day_number = None
+                    session_number = None
+                elif session_conflicted:
+                    continue
+                elif session is None:
+                    session = observed_label
+                    day_number = observed_day
+                    session_number = observed_session
+                elif observed_label != session:
+                    metadata_conflicts.append(
+                        f"Conflicting session header: {observed_label}"
+                    )
+                    session_conflicted = True
+                    session = None
+                    day_number = None
+                    session_number = None
+                continue
+            if RE_BARE_RESULTS.match(line):
                 continue
 
             # Event header (new event)
@@ -535,6 +650,8 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         time_standard=None,
                         time_type="Prelim Time",
                         is_relay=is_relay,
+                        relay_count=info["relay_count"],
+                        leg_distance=info["leg_distance"],
                     )
                     event_map[evt_key] = current_event
                     events.append(current_event)
@@ -567,7 +684,12 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             # Column header — detect time type (round)
             m = RE_COLUMN_HEADER.match(line)
             if m:
-                time_type = m.group(1) or m.group(2) or m.group(3) or "Finals Time"
+                if m.group(1):
+                    time_type = "Prelim Time"
+                elif m.group(2):
+                    time_type = "Finals Time"
+                else:
+                    time_type = "Timed Final"
                 if current_event:
                     current_event.time_type = time_type
                 in_relay_section = False
@@ -576,13 +698,14 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             # Relay column header
             if RE_RELAY_COLUMN_HEADER.match(line):
                 in_relay_section = True
-                # Detect time type from the relay header
-                if "Finals Time" in line:
-                    time_type = "Finals Time"
-                elif "Prelim Time" in line and "Seed Time" not in line:
+                # The first timing column distinguishes a seeded timed final
+                # from a progression final whose input is a prelim time.
+                if "Seed Time Prelim Time" in line:
                     time_type = "Prelim Time"
-                else:
+                elif "Prelim Time Finals Time" in line:
                     time_type = "Finals Time"
+                else:
+                    time_type = "Timed Final"
                 if current_event:
                     current_event.time_type = time_type
                 continue
@@ -644,6 +767,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         time_type=current_event.time_type,
                         is_dq=is_dq,
                         is_exhibition=is_exhibition,
+                        status=normalize_result_status(time_raw),
                     )
                     current_event.relay_results.append(current_relay)
                     continue
@@ -695,9 +819,15 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                 else:
                     placement = int(placement_str)
 
-                # Guest swimmer (name starts with *)
-                is_guest = name_raw.startswith("*")
+                # HY-TEK uses either a leading * on the name or X on the result
+                # time for guest/exhibition swims. The relational model preserves
+                # both through its existing isGuest field.
+                is_exhibition = finals_raw.startswith("X")
+                is_guest = name_raw.startswith("*") or is_exhibition
                 name = name_raw.lstrip("*").strip()
+
+                if is_exhibition:
+                    finals_raw = finals_raw[1:]
 
                 # Age
                 age = int(age_str) if age_str else None
@@ -730,6 +860,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     qualifier=qualifier,
                     reaction_time=None,
                     splits=[],
+                    status=normalize_result_status(finals_raw),
                 )
                 current_event.results.append(current_result)
                 continue
@@ -738,6 +869,44 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             # (Skip known noise: repeated meet headers, empty-ish lines, page numbers)
             if not RE_MEET_HEADER.match(line) and not line.isdigit():
                 unmatched_lines.append(line)
+
+    # Quarantine relay-leg identities that PDF column overlap has corrupted.
+    # The team performance remains usable, but unsafe person rows must never be
+    # promoted into the swimmer registry.
+    for event in events:
+        for relay in event.relay_results:
+            safe_legs: list[ParsedRelayLeg] = []
+            reasons: list[str] = []
+            seen_numbers: set[int] = set()
+            for leg in relay.legs:
+                reason = None
+                if leg.leg_number not in {1, 2, 3, 4}:
+                    reason = f"invalid leg number {leg.leg_number}"
+                elif leg.leg_number in seen_numbers:
+                    reason = f"duplicate leg number {leg.leg_number}"
+                elif leg.age is not None and not 5 <= leg.age <= 100:
+                    reason = f"implausible age {leg.age}"
+                elif (
+                    not leg.name.strip()
+                    or any(char.isdigit() for char in leg.name)
+                    or ")" in leg.name
+                    or "r:" in leg.name.lower()
+                ):
+                    reason = "corrupted name structure"
+
+                if reason:
+                    reasons.append(f"leg {leg.leg_number}: {reason}")
+                    continue
+                seen_numbers.add(leg.leg_number)
+                safe_legs.append(leg)
+
+            missing = sorted({1, 2, 3, 4} - seen_numbers)
+            if missing:
+                reasons.append(f"missing safe legs {missing}")
+            relay.legs = safe_legs
+            if reasons:
+                relay.leg_parse_status = "partial" if safe_legs else "unavailable"
+                relay.leg_parse_warning = "; ".join(reasons)
 
     # Post-process: assign split distances
     for event in events:
@@ -759,10 +928,15 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         sp.distance = interval * (j + 1)
 
                     # Compute per-leg times and assign per-swimmer splits
-                    num_legs = len(rr.legs) or 4
+                    num_legs = event.relay_count or 4
                     leg_times = compute_relay_leg_times(rr.splits, num_legs=num_legs)
                     splits_per_leg = n_splits // num_legs if num_legs > 0 else 0
-                    for leg_idx, (leg, lt) in enumerate(zip(rr.legs, leg_times)):
+                    legs_by_number = {leg.leg_number: leg for leg in rr.legs}
+                    for leg_number, lt in enumerate(leg_times, start=1):
+                        leg = legs_by_number.get(leg_number)
+                        if leg is None:
+                            continue
+                        leg_idx = leg_number - 1
                         if lt:
                             leg.split_time = lt
                         # Leg 1's RT is the team's start RT
@@ -772,16 +946,27 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         if splits_per_leg > 0:
                             start = leg_idx * splits_per_leg
                             end = start + splits_per_leg
-                            leg_splits = rr.splits[start:end]
-                            # Re-number distances relative to this swimmer's leg
-                            for j, sp in enumerate(leg_splits):
-                                sp.distance = interval * (j + 1)
+                            # Copy before re-numbering; relay-level cumulative
+                            # distances and leg-relative distances are different facts.
+                            leg_splits = [
+                                Split(
+                                    cumulative_time=sp.cumulative_time,
+                                    split_time=sp.split_time,
+                                    distance=interval * (j + 1),
+                                )
+                                for j, sp in enumerate(rr.splits[start:end])
+                            ]
                             leg.splits = leg_splits
 
     meet = ParsedMeet(
         meet_name=meet_name,
         meet_dates=meet_dates,
         session=session,
+        start_date=start_date,
+        end_date=end_date,
+        day_number=day_number,
+        session_number=session_number,
+        metadata_conflicts=metadata_conflicts,
         events=events,
     )
 
@@ -806,7 +991,19 @@ class ConfidenceReport:
 
     @property
     def passed(self) -> bool:
-        return self.score >= 0.6
+        critical_checks = {
+            "meet_name",
+            "meet_dates",
+            "metadata_consistent",
+            "session_metadata",
+            "positive_day_session",
+            "has_events",
+            "has_results",
+            "relay_leg_integrity",
+        }
+        return self.score >= 0.6 and all(
+            self.checks.get(name, False) for name in critical_checks
+        )
 
 
 def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int,
@@ -817,18 +1014,32 @@ def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int
     # 1. Meet name extracted?
     checks["meet_name"] = bool(meet.meet_name)
 
-    # 2. Meet dates extracted?
-    checks["meet_dates"] = bool(meet.meet_dates)
+    # 2. Meet dates resolved as valid calendar dates?
+    checks["meet_dates"] = meet.start_date is not None and meet.end_date is not None
+
+    # Repeated page metadata must agree. Bare "Results" is a valid signal that
+    # no structured session metadata was supplied.
+    checks["metadata_consistent"] = not meet.metadata_conflicts
+    checks["session_metadata"] = (
+        not meet.session
+        or (meet.day_number is not None and meet.session_number is not None)
+    )
+    checks["positive_day_session"] = not any(
+        "must be positive" in conflict for conflict in meet.metadata_conflicts
+    ) and (
+        meet.day_number is None
+        or (meet.day_number > 0 and meet.session_number is not None and meet.session_number > 0)
+    )
 
     # 3. At least one event found?
     checks["has_events"] = len(meet.events) > 0
 
     # 4. At least one result found?
-    checks["has_results"] = meet.total_results > 0
+    checks["has_results"] = meet.total_results + meet.total_relay_results > 0
 
     # 5. All events have time_type set?
     checks["all_events_typed"] = all(
-        ev.time_type in ("Prelim Time", "Finals Time") for ev in meet.events
+        ev.time_type in ("Prelim Time", "Finals Time", "Timed Final") for ev in meet.events
     )
 
     # 6. >80% of non-blank lines classified?
@@ -844,6 +1055,23 @@ def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int
     checks["valid_times"] = all(
         r.finals_time is None or bool(re.match(r"^\d+:[\d.]+$|^[\d.]+$", r.finals_time))
         for ev in meet.events for r in ev.results
+    )
+
+    checks["relay_leg_integrity"] = all(
+        leg.leg_number in {1, 2, 3, 4}
+        and (leg.age is None or 5 <= leg.age <= 100)
+        and bool(leg.name.strip())
+        and not any(char.isdigit() for char in leg.name)
+        and ")" not in leg.name
+        and "r:" not in leg.name.lower()
+        for ev in meet.events
+        for relay in ev.relay_results
+        for leg in relay.legs
+    )
+    checks["relay_leg_completeness"] = all(
+        relay.leg_parse_status == "complete"
+        for ev in meet.events
+        for relay in ev.relay_results
     )
 
     passed_count = sum(1 for v in checks.values() if v)

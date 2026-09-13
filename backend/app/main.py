@@ -22,7 +22,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -39,12 +39,21 @@ from .browser import (
     browser_swimmer_detail,
     list_browser_swimmers,
 )
+from .competition_packages import resolve_session_metadata
 from .database import Base, engine, get_db
 from .entity_resolution import resolve_swimmer, resolve_team
-from .ingestion import classify_document, is_import_eligible_document, record_parse_job, record_raw_document, start_ingestion_run
-from .models import IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
+from .ingestion import (
+    classify_document,
+    cleanup_unledgered_archives,
+    is_import_eligible_document,
+    pdf_storage_path,
+    record_parse_job,
+    record_raw_document,
+    start_ingestion_run,
+)
+from .models import CompetitionSession, IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
 from .parsers.base import detect_and_parse
-from .parsers.hytek import ConfidenceReport, parse_hytek_pdf, time_to_seconds
+from .parsers.hytek import ConfidenceReport, ParsedMeet, parse_hytek_pdf, time_to_seconds
 from .source_monitoring import (
     SourceMonitorAlreadyRunningError,
     SourceRuleDisabledError,
@@ -88,8 +97,12 @@ from .schemas import (
 # App setup
 # ---------------------------------------------------------------------------
 
-PARSER_VERSION = "hytek-v1"
+PARSER_VERSION = "hytek-v2"
 RAW_ARCHIVE_ROOT = Path(os.getenv("SWIM_RAW_ARCHIVE_ROOT", "data/raw-documents"))
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_ZIP_PDFS = 100
+MAX_ZIP_EXPANDED_BYTES = 250 * 1024 * 1024
+MAX_ZIP_COMPRESSION_RATIO = 200
 
 
 @dataclass
@@ -97,7 +110,18 @@ class UploadedPdf:
     path: Path
     filename: str
     file_bytes: bytes
-    content_type: str | None = "application/pdf"
+    content_type: str = "application/pdf"
+
+
+@dataclass
+class PreparedUploadPdf:
+    uploaded: UploadedPdf
+    parsed: ParsedMeet
+    confidence: ConfidenceReport
+    parser_format: str
+    meet_start: datetime
+    meet_end: datetime
+    swim_date: datetime | None
 
 
 app = FastAPI(
@@ -162,6 +186,7 @@ def _time_type_to_round(time_type: str) -> str:
     mapping = {
         "Prelim Time": "Prelim",
         "Finals Time": "Final",
+        "Timed Final": "Timed Final",
     }
     return mapping.get(time_type, time_type or "Final")
 
@@ -178,13 +203,39 @@ def _compute_legacy_result_hash(
 def _compute_result_hash(
     meet_id: int, event: str, swimmer_name: str, team: str | None,
     round_name: str | None, time: str | None, age: int | None = None,
+    *, session_id: int | None = None, swim_date: datetime | None = None,
+    source_event_number: str | None = None, status: str = "unknown",
 ) -> str:
-    """SHA-256 hash for source-result deduplication, including identity age."""
+    """Session-aware SHA-256 identity for one source performance."""
+    date_key = swim_date.date().isoformat() if swim_date is not None else ""
     raw = (
-        f"v2|{meet_id}|{event}|{swimmer_name}|{team or ''}|{age if age is not None else ''}|"
-        f"{round_name or ''}|{time or ''}"
+        f"v4|{meet_id}|{session_id or ''}|{date_key}|{source_event_number or ''}|"
+        f"{event}|{swimmer_name}|{team or ''}|{age if age is not None else ''}|"
+        f"{round_name or ''}|{time or ''}|{status}"
     )
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _resolve_legacy_upload_dates(parsed) -> tuple[datetime, datetime, datetime | None]:
+    """Map typed parser dates into the legacy Meet/Result compatibility layer."""
+    if parsed.start_date is None or parsed.end_date is None:
+        raise ValueError("A valid segment date range is required")
+    if parsed.metadata_conflicts:
+        raise ValueError("Competition metadata is conflicting")
+
+    meet_start = datetime.combine(parsed.start_date, datetime.min.time())
+    meet_end = datetime.combine(parsed.end_date, datetime.min.time())
+    resolution = resolve_session_metadata(parsed)
+    if resolution.status == "conflicting":
+        raise ValueError("; ".join(resolution.diagnostics))
+
+    if resolution.race_date is not None:
+        swim_date = datetime.combine(resolution.race_date, datetime.min.time())
+    elif parsed.start_date == parsed.end_date:
+        swim_date = meet_start
+    else:
+        swim_date = None
+    return meet_start, meet_end, swim_date
 
 
 def _swimmer_brief(s: Swimmer) -> SwimmerBrief:
@@ -204,6 +255,7 @@ def _result_to_list_item(r: Result) -> ResultListItem:
         seed_time=r.seedTime,
         placement=r.placement,
         is_dq=r.isDQ,
+        status=r.resultStatus,
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
@@ -224,6 +276,7 @@ def _result_to_brief(r: Result) -> ResultBrief:
         seed_time=r.seedTime,
         placement=r.placement,
         is_dq=r.isDQ,
+        status=r.resultStatus,
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
@@ -259,9 +312,12 @@ def _relay_to_brief(rr: RelayResult) -> RelayResultBrief:
         seed_time=rr.seedTime,
         placement=rr.placement,
         is_dq=rr.isDQ,
+        status=rr.resultStatus,
         is_exhibition=rr.isExhibition,
         round=rr.round,
         swim_date=rr.swimDate,
+        leg_parse_status=rr.legParseStatus,
+        leg_parse_warning=rr.legParseWarning,
         legs=[_relay_leg_brief(leg) for leg in rr.legs],
         meet=_meet_brief(rr.meet),
     )
@@ -276,6 +332,7 @@ def _result_to_combined(r: Result) -> CombinedResultItem:
         seed_time=r.seedTime,
         placement=r.placement,
         is_dq=r.isDQ,
+        status=r.resultStatus,
         round=r.round,
         swim_date=r.swimDate,
         qualifier=r.qualifier,
@@ -294,6 +351,7 @@ def _relay_to_combined(rr: RelayResult) -> CombinedResultItem:
         seed_time=rr.seedTime,
         placement=rr.placement,
         is_dq=rr.isDQ,
+        status=rr.resultStatus,
         round=rr.round,
         swim_date=rr.swimDate,
         team_name=rr.teamName,
@@ -313,6 +371,7 @@ def _result_to_detail(r: Result) -> ResultDetail:
         seed_time=r.seedTime,
         placement=r.placement,
         is_dq=r.isDQ,
+        status=r.resultStatus,
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
@@ -338,50 +397,29 @@ def upload_preview(file: UploadFile = File(...)):
     event_groups: list[PreviewEventGroup] = []
     total_results = 0
     all_swimmers: set[str] = set()
-    meet_name = ""
-    meet_dates = None
-    session_label = None
-    parser_format = "unknown"
-    last_confidence = None
-
     try:
-        for uploaded_pdf in uploaded_pdfs:
-            category = classify_document(uploaded_pdf.filename)
-            if not is_import_eligible_document(category):
-                uploaded_pdf.path.unlink(missing_ok=True)
-                continue
-            try:
-                parsed, confidence, fmt = detect_and_parse(uploaded_pdf.path)
-                parser_format = fmt
-                last_confidence = confidence
-            except Exception:
-                continue
-            finally:
-                uploaded_pdf.path.unlink(missing_ok=True)
-
-            if not meet_name:
-                meet_name = parsed.meet_name
-                meet_dates = parsed.meet_dates
-            if not session_label:
-                session_label = parsed.session
+        prepared, _skipped = _prepare_upload_bundle(uploaded_pdfs)
+        for item in prepared:
+            parsed = item.parsed
 
             for ev in parsed.events:
-                round_name = _time_type_to_round(ev.time_type)
-                rows = []
+                rows_by_round: dict[str, list[PreviewResultRow]] = {}
 
                 # Individual results
                 for pr in ev.results:
                     all_swimmers.add(pr.name)
-                    rows.append(PreviewResultRow(
+                    row_round = _time_type_to_round(pr.time_type)
+                    rows_by_round.setdefault(row_round, []).append(PreviewResultRow(
                         event=ev.event_name,
                         name=pr.name,
                         age=pr.age,
                         team=pr.team,
                         time=pr.finals_time,
                         seed_time=pr.seed_time,
-                        round=round_name,
+                        round=row_round,
                         placement=pr.placement,
                         is_dq=pr.is_dq,
+                        status=_effective_result_status(pr),
                         is_guest=pr.is_guest,
                         qualifier=pr.qualifier,
                     ))
@@ -390,47 +428,58 @@ def upload_preview(file: UploadFile = File(...)):
                 for rr in ev.relay_results:
                     for leg in rr.legs:
                         all_swimmers.add(leg.name)
-                    rows.append(PreviewResultRow(
+                    row_round = _time_type_to_round(rr.time_type)
+                    rows_by_round.setdefault(row_round, []).append(PreviewResultRow(
                         event=ev.event_name,
                         name=f"{rr.team_name} {rr.relay_letter or ''}".strip(),
                         age=None,
                         team=", ".join(leg.name.replace(", ", " ") for leg in rr.legs) if rr.legs else "",
                         time=rr.finals_time,
                         seed_time=rr.seed_time,
-                        round=round_name,
+                        round=row_round,
                         placement=rr.placement,
                         is_dq=rr.is_dq,
+                        status=_effective_result_status(rr),
                         is_guest=False,
                         qualifier=None,
                     ))
 
-                total_results += len(rows)
-                # Preview sample: first 10 + last 3 for spot-checking edge cases
-                sample = rows[:10] + rows[-3:] if len(rows) > 13 else rows
-                event_groups.append(PreviewEventGroup(
-                    event=ev.event_name,
-                    round=round_name,
-                    result_count=len(rows),
-                    results=sample,
-                ))
+                for row_round, rows in rows_by_round.items():
+                    total_results += len(rows)
+                    # Preview sample: first 10 + last 3 for spot-checking edge cases
+                    sample = rows[:10] + rows[-3:] if len(rows) > 13 else rows
+                    event_groups.append(PreviewEventGroup(
+                        event=ev.event_name,
+                        round=row_round,
+                        result_count=len(rows),
+                        results=sample,
+                    ))
     finally:
         for p in uploaded_pdfs:
             p.path.unlink(missing_ok=True)
 
-    if last_confidence is None:
-        raise HTTPException(status_code=422, detail="No valid PDFs could be parsed")
+    first = prepared[0]
+    aggregate_checks = {
+        name: all(item.confidence.checks.get(name, False) for item in prepared)
+        for name in set().union(*(item.confidence.checks for item in prepared))
+    }
+    unmatched_lines = [
+        line
+        for item in prepared
+        for line in item.confidence.unmatched_lines
+    ]
 
     return UploadPreviewResponse(
-        parser_format=parser_format,
-        confidence_score=last_confidence.score,
-        confidence_passed=last_confidence.passed,
+        parser_format=first.parser_format,
+        confidence_score=min(item.confidence.score for item in prepared),
+        confidence_passed=all(item.confidence.passed for item in prepared),
         confidence_checks=[
-            ConfidenceCheck(name=k, passed=v) for k, v in last_confidence.checks.items()
+            ConfidenceCheck(name=k, passed=v) for k, v in sorted(aggregate_checks.items())
         ],
-        unmatched_lines=last_confidence.unmatched_lines,
-        meet_name=meet_name,
-        meet_dates=meet_dates,
-        session=session_label,
+        unmatched_lines=unmatched_lines,
+        meet_name=first.parsed.meet_name,
+        meet_dates=first.parsed.meet_dates,
+        session=first.parsed.session if len(prepared) == 1 else f"{len(prepared)} sessions",
         events_count=len(event_groups),
         results_count=total_results,
         swimmers_count=len(all_swimmers),
@@ -453,29 +502,57 @@ def _extract_pdfs_from_upload(file: UploadFile) -> list[UploadedPdf]:
     """Extract PDF(s) from an uploaded file (PDF or ZIP), preserving source metadata."""
     original_filename = file.filename or "upload"
     filename = original_filename.lower()
-    file_bytes = file.file.read()
+    file_bytes = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Upload exceeds the 50 MiB limit")
 
     if filename.endswith(".zip"):
         tmp_zip = _parse_pdf_to_temp(file_bytes, suffix=".zip")
         pdfs: list[UploadedPdf] = []
         try:
             with zipfile.ZipFile(tmp_zip) as zf:
-                for name in sorted(zf.namelist()):
-                    safe_name = Path(name).name
-                    if name.startswith("__MACOSX") or not safe_name.lower().endswith(".pdf"):
-                        continue
-                    pdf_bytes = zf.read(name)
+                pdf_infos = [
+                    info
+                    for info in zf.infolist()
+                    if not info.filename.startswith("__MACOSX")
+                    and Path(info.filename).name.lower().endswith(".pdf")
+                ]
+                if len(pdf_infos) > MAX_ZIP_PDFS:
+                    raise HTTPException(status_code=413, detail="ZIP contains more than 100 PDFs")
+                if sum(info.file_size for info in pdf_infos) > MAX_ZIP_EXPANDED_BYTES:
+                    raise HTTPException(status_code=413, detail="ZIP expands beyond the 250 MiB limit")
+                for info in sorted(pdf_infos, key=lambda item: item.filename):
+                    if info.file_size and (
+                        info.compress_size == 0
+                        or info.file_size / info.compress_size > MAX_ZIP_COMPRESSION_RATIO
+                    ):
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"ZIP member has an unsafe compression ratio: {info.filename}",
+                        )
+                    safe_name = Path(info.filename).name
+                    pdf_bytes = zf.read(info)
+                    if len(pdf_bytes) != info.file_size:
+                        raise HTTPException(status_code=400, detail=f"ZIP member size mismatch: {info.filename}")
+                    if not pdf_bytes.startswith(b"%PDF"):
+                        raise HTTPException(status_code=422, detail=f"ZIP member is not a PDF: {info.filename}")
                     pdfs.append(UploadedPdf(
                         path=_parse_pdf_to_temp(pdf_bytes),
                         filename=safe_name,
                         file_bytes=pdf_bytes,
                     ))
+        except Exception:
+            for uploaded_pdf in pdfs:
+                uploaded_pdf.path.unlink(missing_ok=True)
+            raise
         finally:
             tmp_zip.unlink(missing_ok=True)
         if not pdfs:
             raise HTTPException(status_code=400, detail="ZIP file contains no PDF files")
         return pdfs
     elif filename.endswith(".pdf"):
+        if not file_bytes.startswith(b"%PDF"):
+            raise HTTPException(status_code=422, detail="Uploaded file is not a PDF")
         return [UploadedPdf(
             path=_parse_pdf_to_temp(file_bytes),
             filename=original_filename,
@@ -486,39 +563,287 @@ def _extract_pdfs_from_upload(file: UploadFile) -> list[UploadedPdf]:
         raise HTTPException(status_code=400, detail="Only PDF or ZIP files are accepted")
 
 
+def _prepare_upload_bundle(
+    uploaded_pdfs: list[UploadedPdf],
+) -> tuple[list[PreparedUploadPdf], list[str]]:
+    """Parse and validate the entire upload before any database/archive mutation."""
+    prepared: list[PreparedUploadPdf] = []
+    skipped: list[str] = []
+    failures: list[str] = []
+
+    for uploaded in uploaded_pdfs:
+        category = classify_document(uploaded.filename)
+        if not is_import_eligible_document(category):
+            skipped.append(f"{uploaded.filename}: archived only ({category})")
+            continue
+        try:
+            parsed, confidence, parser_format = detect_and_parse(uploaded.path)
+        except Exception as exc:
+            failures.append(f"{uploaded.filename}: parse failed ({exc})")
+            continue
+        if not confidence.passed:
+            failed_checks = ", ".join(
+                name for name, passed in confidence.checks.items() if not passed
+            )
+            failures.append(
+                f"{uploaded.filename}: confidence checks failed ({failed_checks})"
+            )
+            continue
+        resolution = resolve_session_metadata(parsed)
+        if resolution.status == "conflicting":
+            failures.append(
+                f"{uploaded.filename}: session metadata conflicts "
+                f"({' ; '.join(resolution.diagnostics)})"
+            )
+            continue
+        try:
+            meet_start, meet_end, swim_date = _resolve_legacy_upload_dates(parsed)
+        except ValueError as exc:
+            failures.append(f"{uploaded.filename}: date resolution failed ({exc})")
+            continue
+        prepared.append(
+            PreparedUploadPdf(
+                uploaded=uploaded,
+                parsed=parsed,
+                confidence=confidence,
+                parser_format=parser_format,
+                meet_start=meet_start,
+                meet_end=meet_end,
+                swim_date=swim_date,
+            )
+        )
+
+    if failures:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "The complete upload bundle failed preflight; nothing was imported",
+                "errors": failures,
+            },
+        )
+    if not prepared:
+        raise HTTPException(status_code=422, detail="No import-eligible result PDFs were found")
+
+    identities = {
+        (
+            item.parsed.meet_name.strip().casefold(),
+            item.meet_start,
+            item.meet_end,
+        )
+        for item in prepared
+    }
+    if len(identities) != 1:
+        labels = sorted(
+            f"{item.parsed.meet_name} ({item.meet_start.date()} to "
+            f"{item.meet_end.date() if item.meet_end else 'unknown'})"
+            for item in prepared
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Upload contains multiple competition segments; import them separately",
+                "segments": labels,
+            },
+        )
+    return prepared, skipped
+
+
+def _legacy_swim_date_compatible(existing: datetime | None, resolved: datetime | None) -> bool:
+    if existing is None or resolved is None:
+        return existing is None and resolved is None
+    return existing.date() == resolved.date()
+
+
+def _effective_result_status(value) -> str:
+    declared = getattr(value, "resultStatus", None) or getattr(value, "status", None)
+    if declared and declared != "unknown":
+        return declared
+    if getattr(value, "isDQ", False) or getattr(value, "is_dq", False):
+        return "dq"
+    if getattr(value, "time", None) or getattr(value, "finals_time", None):
+        return "finished"
+    return "unknown"
+
+
+def _legacy_individual_evidence_matches(existing: Result, parsed_result, swim_date: datetime | None) -> bool:
+    return (
+        existing.swimmer.age == parsed_result.age
+        and existing.seedTime == parsed_result.seed_time
+        and existing.placement == parsed_result.placement
+        and existing.isDQ == parsed_result.is_dq
+        and _effective_result_status(existing) == _effective_result_status(parsed_result)
+        and existing.dqCode == parsed_result.dq_code
+        and existing.dqDescription == parsed_result.dq_description
+        and existing.isGuest == parsed_result.is_guest
+        and existing.qualifier == parsed_result.qualifier
+        and existing.reactionTime == parsed_result.reaction_time
+        and existing.splits == _splits_to_json(parsed_result.splits)
+        and _legacy_swim_date_compatible(existing.swimDate, swim_date)
+    )
+
+
+def _individual_evidence_matches(
+    existing: Result,
+    parsed_result,
+    *,
+    event_name: str,
+    round_name: str,
+    swim_date: datetime | None,
+    source_event_number: str,
+    session_id: int | None,
+) -> bool:
+    """Require an identity-hash hit to agree with all persisted race evidence."""
+    return (
+        existing.event == event_name
+        and existing.time == parsed_result.finals_time
+        and existing.round == round_name
+        and existing.rawSwimmerName == parsed_result.name
+        and existing.rawTeamName == parsed_result.team
+        and existing.sourceEventNumber == source_event_number
+        and existing.sessionId == session_id
+        and _legacy_individual_evidence_matches(existing, parsed_result, swim_date)
+    )
+
+
+def _legacy_relay_evidence_matches(existing: RelayResult, parsed_relay, swim_date: datetime | None) -> bool:
+    stored_legs = sorted(
+        (
+            leg.legNumber,
+            leg.swimmerName,
+            leg.age,
+            leg.gender,
+            leg.isGuest,
+            leg.reactionTime,
+            leg.splitTime,
+            leg.splits,
+        )
+        for leg in existing.legs
+    )
+    parsed_legs = sorted(
+        (
+            leg.leg_number,
+            leg.name,
+            leg.age,
+            leg.gender,
+            leg.is_guest,
+            leg.reaction_time,
+            leg.split_time,
+            _splits_to_json(leg.splits),
+        )
+        for leg in parsed_relay.legs
+    )
+    return (
+        existing.seedTime == parsed_relay.seed_time
+        and existing.placement == parsed_relay.placement
+        and existing.isDQ == parsed_relay.is_dq
+        and _effective_result_status(existing) == _effective_result_status(parsed_relay)
+        and existing.dqCode == parsed_relay.dq_code
+        and existing.dqDescription == parsed_relay.dq_description
+        and existing.isExhibition == parsed_relay.is_exhibition
+        and existing.reactionTime == parsed_relay.reaction_time
+        and existing.splits == _splits_to_json(parsed_relay.splits)
+        and existing.legParseStatus == parsed_relay.leg_parse_status
+        and existing.legParseWarning == parsed_relay.leg_parse_warning
+        and _legacy_swim_date_compatible(existing.swimDate, swim_date)
+        and stored_legs == parsed_legs
+    )
+
+
+def _relay_evidence_matches(
+    existing: RelayResult,
+    parsed_relay,
+    *,
+    event_name: str,
+    round_name: str,
+    swim_date: datetime | None,
+    source_event_number: str,
+    session_id: int | None,
+) -> bool:
+    """Require a relay identity-hash hit to agree with all race evidence."""
+    return (
+        existing.event == event_name
+        and existing.time == parsed_relay.finals_time
+        and existing.round == round_name
+        and existing.rawTeamName == parsed_relay.team_name
+        and existing.relayLetter == parsed_relay.relay_letter
+        and existing.sourceEventNumber == source_event_number
+        and existing.sessionId == session_id
+        and _legacy_relay_evidence_matches(existing, parsed_relay, swim_date)
+    )
+
+
 def _process_parsed_meet(
     parsed,
     meet: Meet,
-    swim_date: datetime,
+    swim_date: datetime | None,
     db: Session,
     *,
     raw_document: RawDocument | None = None,
     parse_job: ParseJob | None = None,
     ingestion_run: IngestionRun | None = None,
     parser_version: str | None = None,
+    competition_session: CompetitionSession | None = None,
 ) -> tuple[int, int, int, list[str], list[dict]]:
     """Process parsed results into database. Returns (results_count, swimmers_created, duplicates_skipped, errors, duplicates)."""
     errors: list[str] = []
     duplicates_list: list[dict] = []
-    swimmers_created: set[str] = set()
+    swimmers_created: set[int] = set()
     results_count = 0
     duplicates_skipped = 0
 
     for event in parsed.events:
-        round_name = _time_type_to_round(event.time_type)
-
         for pr in event.results:
+            round_name = _time_type_to_round(pr.time_type)
             content_hash = _compute_result_hash(
                 meet_id=meet.id, event=event.event_name, swimmer_name=pr.name,
                 team=pr.team, round_name=round_name, time=pr.finals_time,
                 age=pr.age,
+                session_id=competition_session.id if competition_session else None,
+                swim_date=swim_date,
+                source_event_number=event.event_number,
+                status=_effective_result_status(pr),
             )
+
+            if competition_session is not None and raw_document is not None:
+                sourced_legacy = db.query(Result).filter(
+                    Result.meetId == meet.id,
+                    Result.sessionId.is_(None),
+                    Result.sourceDocumentSha256 == raw_document.sha256,
+                    Result.sourceEventNumber == event.event_number,
+                    Result.event == event.event_name,
+                    Result.rawSwimmerName == pr.name,
+                    Result.rawTeamName == pr.team,
+                    Result.round == round_name,
+                    Result.time == pr.finals_time,
+                ).all()
+                if len(sourced_legacy) > 1:
+                    raise ValueError(
+                        "Multiple legacy results matched one sourced session performance"
+                    )
+                if sourced_legacy:
+                    legacy_result = sourced_legacy[0]
+                    if not _legacy_individual_evidence_matches(
+                        legacy_result, pr, swim_date
+                    ):
+                        raise ValueError(
+                            "Legacy sourced result evidence conflicts with parsed source"
+                        )
+                    legacy_result.sessionId = competition_session.id
+                    legacy_result.swimDate = swim_date
+                    legacy_result.contentHash = content_hash
+                    legacy_result.resultStatus = _effective_result_status(pr)
+                    duplicates_skipped += 1
+                    duplicates_list.append({
+                        "event": event.event_name, "name": pr.name,
+                        "team": pr.team, "round": round_name, "time": pr.finals_time,
+                    })
+                    continue
 
             # Check exact source identity before resolving the swimmer. This keeps
             # re-imports idempotent even when age/team evidence is too incomplete
             # to safely attach the row to an existing person.
             existing = db.query(Result).filter(Result.contentHash == content_hash).first()
-            if existing is None:
+            if existing is None and competition_session is None:
                 # v1 hashes omitted age. Accept a legacy hash only when the linked
                 # swimmer carries exactly the same age evidence, including NULL;
                 # otherwise an age-conflicting row must continue to resolution.
@@ -542,6 +867,18 @@ def _process_parsed_meet(
                     .first()
                 )
             if existing:
+                if not _individual_evidence_matches(
+                    existing,
+                    pr,
+                    event_name=event.event_name,
+                    round_name=round_name,
+                    swim_date=swim_date,
+                    source_event_number=event.event_number,
+                    session_id=competition_session.id if competition_session else None,
+                ):
+                    raise ValueError(
+                        "Matching result content hash has conflicting evidence"
+                    )
                 duplicates_skipped += 1
                 duplicates_list.append({
                     "event": event.event_name, "name": pr.name,
@@ -551,7 +888,7 @@ def _process_parsed_meet(
 
             swimmer, created = resolve_swimmer(db, pr.name, pr.age, pr.team)
             if created:
-                swimmers_created.add(pr.name)
+                swimmers_created.add(swimmer.id)
 
             # Identity resolution intentionally treats validated team spelling
             # variants as one swimmer. Dedup must use the same semantics or a
@@ -563,7 +900,13 @@ def _process_parsed_meet(
                 Result.round == round_name,
                 Result.swimDate == swim_date,
                 Result.time == pr.finals_time,
+                Result.resultStatus == _effective_result_status(pr),
                 Result.sourceEventNumber == event.event_number,
+                (
+                    Result.sessionId == competition_session.id
+                    if competition_session
+                    else Result.sessionId.is_(None)
+                ),
             ).first()
             if existing:
                 duplicates_skipped += 1
@@ -581,6 +924,7 @@ def _process_parsed_meet(
                 seedTime=pr.seed_time,
                 placement=pr.placement,
                 isDQ=pr.is_dq,
+                resultStatus=_effective_result_status(pr),
                 dqCode=pr.dq_code,
                 dqDescription=pr.dq_description,
                 isGuest=pr.is_guest,
@@ -597,15 +941,15 @@ def _process_parsed_meet(
                 ingestionRunId=ingestion_run.id if ingestion_run else None,
                 parserVersion=parser_version,
                 sourceEventNumber=event.event_number,
+                sessionId=competition_session.id if competition_session else None,
             )
             db.add(result)
             results_count += 1
 
     # Process relay results
     for event in parsed.events:
-        round_name = _time_type_to_round(event.time_type)
-
         for rr in event.relay_results:
+            round_name = _time_type_to_round(rr.time_type)
             team_canonical = resolve_team(db, rr.team_name)
 
             # Compute relay content hash (kept on raw team name so re-imports stay
@@ -614,11 +958,52 @@ def _process_parsed_meet(
                 meet_id=meet.id, event=event.event_name,
                 swimmer_name=rr.team_name, team=rr.relay_letter,
                 round_name=round_name, time=rr.finals_time,
+                session_id=competition_session.id if competition_session else None,
+                swim_date=swim_date,
+                source_event_number=event.event_number,
+                status=_effective_result_status(rr),
             )
+
+            if competition_session is not None and raw_document is not None:
+                sourced_legacy = db.query(RelayResult).filter(
+                    RelayResult.meetId == meet.id,
+                    RelayResult.sessionId.is_(None),
+                    RelayResult.sourceDocumentSha256 == raw_document.sha256,
+                    RelayResult.sourceEventNumber == event.event_number,
+                    RelayResult.event == event.event_name,
+                    RelayResult.rawTeamName == rr.team_name,
+                    RelayResult.relayLetter == rr.relay_letter,
+                    RelayResult.round == round_name,
+                    RelayResult.time == rr.finals_time,
+                ).all()
+                if len(sourced_legacy) > 1:
+                    raise ValueError(
+                        "Multiple legacy relay results matched one sourced session performance"
+                    )
+                if sourced_legacy:
+                    legacy_relay = sourced_legacy[0]
+                    if not _legacy_relay_evidence_matches(
+                        legacy_relay, rr, swim_date
+                    ):
+                        raise ValueError(
+                            "Legacy sourced relay evidence conflicts with parsed source"
+                        )
+                    legacy_relay.sessionId = competition_session.id
+                    legacy_relay.swimDate = swim_date
+                    legacy_relay.contentHash = relay_hash
+                    legacy_relay.resultStatus = _effective_result_status(rr)
+                    legacy_relay.legParseStatus = rr.leg_parse_status
+                    legacy_relay.legParseWarning = rr.leg_parse_warning
+                    duplicates_skipped += 1
+                    duplicates_list.append({
+                        "event": event.event_name, "name": rr.team_name,
+                        "team": rr.relay_letter, "round": round_name, "time": rr.finals_time,
+                    })
+                    continue
 
             existing = db.query(RelayResult).filter(RelayResult.contentHash == relay_hash).first()
             if existing is None:
-                existing = db.query(RelayResult).filter(
+                query = db.query(RelayResult).filter(
                     RelayResult.meetId == meet.id,
                     RelayResult.event == event.event_name,
                     RelayResult.teamName == team_canonical,
@@ -626,9 +1011,28 @@ def _process_parsed_meet(
                     RelayResult.round == round_name,
                     RelayResult.swimDate == swim_date,
                     RelayResult.time == rr.finals_time,
+                    RelayResult.resultStatus == _effective_result_status(rr),
                     RelayResult.sourceEventNumber == event.event_number,
-                ).first()
+                )
+                query = query.filter(
+                    RelayResult.sessionId == competition_session.id
+                    if competition_session
+                    else RelayResult.sessionId.is_(None)
+                )
+                existing = query.first()
             if existing:
+                if not _relay_evidence_matches(
+                    existing,
+                    rr,
+                    event_name=event.event_name,
+                    round_name=round_name,
+                    swim_date=swim_date,
+                    source_event_number=event.event_number,
+                    session_id=competition_session.id if competition_session else None,
+                ):
+                    raise ValueError(
+                        "Matching relay content hash has conflicting evidence"
+                    )
                 duplicates_skipped += 1
                 duplicates_list.append({
                     "event": event.event_name, "name": rr.team_name,
@@ -645,6 +1049,7 @@ def _process_parsed_meet(
                 seedTime=rr.seed_time,
                 placement=rr.placement,
                 isDQ=rr.is_dq,
+                resultStatus=_effective_result_status(rr),
                 dqCode=rr.dq_code,
                 dqDescription=rr.dq_description,
                 isExhibition=rr.is_exhibition,
@@ -652,6 +1057,8 @@ def _process_parsed_meet(
                 swimDate=swim_date,
                 splits=_splits_to_json(rr.splits),
                 reactionTime=rr.reaction_time,
+                legParseStatus=rr.leg_parse_status,
+                legParseWarning=rr.leg_parse_warning,
                 contentHash=relay_hash,
                 rawTeamName=rr.team_name,
                 sourceDocumentSha256=raw_document.sha256 if raw_document else None,
@@ -659,6 +1066,7 @@ def _process_parsed_meet(
                 ingestionRunId=ingestion_run.id if ingestion_run else None,
                 parserVersion=parser_version,
                 sourceEventNumber=event.event_number,
+                sessionId=competition_session.id if competition_session else None,
             )
             db.add(relay_result)
             db.flush()
@@ -668,7 +1076,7 @@ def _process_parsed_meet(
                 # For relay swimmers, team is the (canonicalized) relay team name
                 swimmer, created = resolve_swimmer(db, leg.name, leg.age, rr.team_name)
                 if created:
-                    swimmers_created.add(leg.name)
+                    swimmers_created.add(swimmer.id)
 
                 relay_leg = RelayLeg(
                     relayResultId=relay_result.id,
@@ -696,6 +1104,13 @@ def upload_results(
     db: Session = Depends(get_db),
 ):
     uploaded_pdfs = _extract_pdfs_from_upload(file)
+    try:
+        prepared, preflight_warnings = _prepare_upload_bundle(uploaded_pdfs)
+    except Exception:
+        for uploaded_pdf in uploaded_pdfs:
+            uploaded_pdf.path.unlink(missing_ok=True)
+        raise
+    prepared_by_path = {item.uploaded.path: item for item in prepared}
     ingestion_run = start_ingestion_run(
         db,
         mode="replace" if replace else "append",
@@ -703,16 +1118,24 @@ def upload_results(
         parser_version=PARSER_VERSION,
     )
 
-    all_errors: list[str] = []
+    all_errors: list[str] = list(preflight_warnings)
     all_duplicates: list[dict] = []
     total_results = 0
     total_swimmers = 0
     total_duplicates = 0
     total_events = 0
     meet = None
+    meet_identity: tuple[str, datetime, datetime] | None = None
+    created_archive_paths: set[Path] = set()
 
     try:
         for uploaded_pdf in uploaded_pdfs:
+            archive_path = pdf_storage_path(
+                RAW_ARCHIVE_ROOT,
+                hashlib.sha256(uploaded_pdf.file_bytes).hexdigest(),
+            )
+            if not archive_path.exists():
+                created_archive_paths.add(archive_path)
             raw_document = record_raw_document(
                 db,
                 file_bytes=uploaded_pdf.file_bytes,
@@ -722,10 +1145,10 @@ def upload_results(
                 archive_root=RAW_ARCHIVE_ROOT,
                 content_type=uploaded_pdf.content_type,
             )
-            category = classify_document(uploaded_pdf.filename)
-            if not is_import_eligible_document(category):
+            item = prepared_by_path.get(uploaded_pdf.path)
+            if item is None:
+                category = classify_document(uploaded_pdf.filename)
                 reason = f"Skipped {uploaded_pdf.filename}: document type '{category}' is archived but not importable as swim results yet"
-                all_errors.append(reason)
                 record_parse_job(
                     db,
                     raw_document=raw_document,
@@ -740,46 +1163,10 @@ def upload_results(
                     unmatched_lines_count=0,
                     error_message=reason,
                 )
-                uploaded_pdf.path.unlink(missing_ok=True)
                 continue
-            try:
-                parsed, confidence, parser_format = detect_and_parse(uploaded_pdf.path)
-            except ValueError as e:
-                all_errors.append(f"Unsupported format: {uploaded_pdf.filename}: {e}")
-                record_parse_job(
-                    db,
-                    raw_document=raw_document,
-                    parser_name="unknown",
-                    parser_version=PARSER_VERSION,
-                    status="failed",
-                    confidence_score=None,
-                    confidence_passed=False,
-                    events_count=0,
-                    individual_results_count=0,
-                    relay_results_count=0,
-                    unmatched_lines_count=0,
-                    error_message=str(e),
-                )
-                continue
-            except Exception as e:
-                all_errors.append(f"Failed to parse {uploaded_pdf.filename}: {e}")
-                record_parse_job(
-                    db,
-                    raw_document=raw_document,
-                    parser_name="unknown",
-                    parser_version=PARSER_VERSION,
-                    status="failed",
-                    confidence_score=None,
-                    confidence_passed=False,
-                    events_count=0,
-                    individual_results_count=0,
-                    relay_results_count=0,
-                    unmatched_lines_count=0,
-                    error_message=str(e),
-                )
-                continue
-            finally:
-                uploaded_pdf.path.unlink(missing_ok=True)
+            parsed = item.parsed
+            confidence = item.confidence
+            parser_format = item.parser_format
 
             parse_job = record_parse_job(
                 db,
@@ -795,37 +1182,24 @@ def upload_results(
                 unmatched_lines_count=len(confidence.unmatched_lines),
             )
 
-            # Reject low-confidence parses
-            if not confidence.passed:
-                failed_checks = [k for k, v in confidence.checks.items() if not v]
-                all_errors.append(
-                    f"Parse rejected (confidence {confidence.score:.0%}): "
-                    f"failed checks: {', '.join(failed_checks)}"
+            meet_start = item.meet_start
+            meet_end = item.meet_end
+            swim_date = item.swim_date
+
+            parsed_identity = (parsed.meet_name, meet_start, meet_end)
+            if meet_identity is not None and parsed_identity != meet_identity:
+                db.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "A single upload may contain only one competition segment; "
+                        f"found both '{meet_identity[0]}' and '{parsed.meet_name}'"
+                    ),
                 )
-                continue
-
-            # Parse meet dates
-            meet_start = datetime.now()
-            meet_end = None
-            if parsed.meet_dates:
-                try:
-                    parts = parsed.meet_dates.split(" to ")
-                    meet_start = datetime.strptime(parts[0].strip(), "%d/%m/%Y")
-                    if len(parts) > 1:
-                        meet_end = datetime.strptime(parts[1].strip(), "%d/%m/%Y")
-                except (ValueError, IndexError):
-                    pass
-
-            # Parse swim date from session
-            swim_date = meet_start
-            if parsed.session:
-                day_match = re.search(r"Day\s+(\d+)", parsed.session, re.IGNORECASE)
-                if day_match:
-                    day_num = int(day_match.group(1))
-                    swim_date = meet_start + timedelta(days=day_num - 1)
 
             # Find or create Meet
             if meet is None:
+                meet_identity = parsed_identity
                 meet = db.query(Meet).filter(
                     Meet.name == parsed.meet_name, Meet.startDate == meet_start
                 ).first()
@@ -835,6 +1209,11 @@ def upload_results(
                     db.flush()
                 elif meet_end and not meet.endDate:
                     meet.endDate = meet_end
+                elif meet.endDate and meet.endDate.date() != meet_end.date():
+                    raise ValueError(
+                        f"Stored meet end date {meet.endDate.date()} conflicts with "
+                        f"uploaded end date {meet_end.date()}"
+                    )
 
                 # If replace mode, delete all existing results for this meet
                 if replace:
@@ -857,11 +1236,15 @@ def upload_results(
                 ingestion_run=ingestion_run,
                 parser_version=PARSER_VERSION,
             )
+            if errs:
+                raise ValueError(
+                    f"Import validation failed for {uploaded_pdf.filename}: "
+                    f"{'; '.join(errs)}"
+                )
             total_results += rc
             total_swimmers += sc
             total_duplicates += dc
             total_events += len(parsed.events)
-            all_errors.extend(errs)
             all_duplicates.extend(dups)
 
         ingestion_run.status = "succeeded" if meet is not None else "failed"
@@ -869,7 +1252,10 @@ def upload_results(
         ingestion_run.duplicatesSkipped = total_duplicates
         ingestion_run.validationErrors = "; ".join(all_errors) if all_errors else None
         db.commit()
-
+    except Exception:
+        db.rollback()
+        cleanup_unledgered_archives(db, created_archive_paths)
+        raise
     finally:
         # Clean up any remaining temp files
         for p in uploaded_pdfs:
@@ -1128,10 +1514,10 @@ def get_swimmer(swimmer_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    # Compute personal bests per event (best non-DQ time)
+    # Compute personal bests per event from explicitly finished results only.
     best_by_event: dict[str, tuple[Result, float]] = {}
     for r in results:
-        if r.isDQ or not r.time:
+        if r.isDQ or r.resultStatus != "finished" or not r.time:
             continue
         secs = time_to_seconds(r.time)
         if secs is None:

@@ -4,9 +4,9 @@ SQLAlchemy ORM models.
 Models: Swimmer, Meet, Result, RelayResult, RelayLeg
 """
 
-from datetime import datetime
+from datetime import date as calendar_date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -339,6 +339,146 @@ class Swimmer(Base):
         return f"<Swimmer(id={self.id}, name='{self.name}', team='{self.team}')>"
 
 
+class CompetitionEdition(Base):
+    """One official competition edition, independent of its DB projection."""
+
+    __tablename__ = "CompetitionEdition"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sourceKey: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    sourceEventId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("SourceEvent.id", ondelete="SET NULL"), nullable=True
+    )
+    startDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
+    endDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
+    resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
+    resolvedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    segments: Mapped[list["CompetitionSegment"]] = relationship(
+        back_populates="competition", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            '"endDate" IS NULL OR "startDate" IS NULL OR "endDate" >= "startDate"',
+            name="CompetitionEdition_date_range_ck",
+        ),
+        CheckConstraint(
+            '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
+            name="CompetitionEdition_resolution_status_ck",
+        ),
+        Index("CompetitionEdition_sourceKey_idx", "sourceKey"),
+        Index("CompetitionEdition_dates_idx", "startDate", "endDate"),
+    )
+
+
+class CompetitionSegment(Base):
+    """A competition part whose day/session numbering is internally coherent."""
+
+    __tablename__ = "CompetitionSegment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    competitionEditionId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("CompetitionEdition.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    legacyMeetId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("Meet.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    startDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
+    endDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
+    resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
+    resolvedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    competition: Mapped["CompetitionEdition"] = relationship(back_populates="segments")
+    legacy_meet: Mapped["Meet | None"] = relationship(back_populates="competition_segment")
+    days: Mapped[list["CompetitionDay"]] = relationship(
+        back_populates="segment", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("competitionEditionId", "key", name="CompetitionSegment_edition_key_uq"),
+        CheckConstraint(
+            '"endDate" IS NULL OR "startDate" IS NULL OR "endDate" >= "startDate"',
+            name="CompetitionSegment_date_range_ck",
+        ),
+        CheckConstraint(
+            '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
+            name="CompetitionSegment_resolution_status_ck",
+        ),
+        Index("CompetitionSegment_competition_idx", "competitionEditionId"),
+    )
+
+
+class CompetitionDay(Base):
+    __tablename__ = "CompetitionDay"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    competitionSegmentId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("CompetitionSegment.id", ondelete="CASCADE"), nullable=False
+    )
+    dayNumber: Mapped[int] = mapped_column(Integer, nullable=False)
+    date: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
+    resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
+    resolvedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    segment: Mapped["CompetitionSegment"] = relationship(back_populates="days")
+    sessions: Mapped[list["CompetitionSession"]] = relationship(
+        back_populates="day", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("competitionSegmentId", "dayNumber", name="CompetitionDay_segment_day_uq"),
+        CheckConstraint('"dayNumber" > 0', name="CompetitionDay_number_ck"),
+        CheckConstraint(
+            '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
+            name="CompetitionDay_resolution_status_ck",
+        ),
+        Index("CompetitionDay_segment_date_idx", "competitionSegmentId", "date"),
+    )
+
+
+class CompetitionSession(Base):
+    __tablename__ = "CompetitionSession"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    competitionDayId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("CompetitionDay.id", ondelete="CASCADE"), nullable=False
+    )
+    sessionNumber: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
+    resolvedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    day: Mapped["CompetitionDay"] = relationship(back_populates="sessions")
+    results: Mapped[list["Result"]] = relationship(back_populates="competition_session")
+    relay_results: Mapped[list["RelayResult"]] = relationship(back_populates="competition_session")
+
+    __table_args__ = (
+        UniqueConstraint("competitionDayId", "sessionNumber", name="CompetitionSession_day_session_uq"),
+        CheckConstraint('"sessionNumber" > 0', name="CompetitionSession_number_ck"),
+        CheckConstraint(
+            '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
+            name="CompetitionSession_resolution_status_ck",
+        ),
+        Index("CompetitionSession_day_idx", "competitionDayId"),
+    )
+
+
 class Meet(Base):
     __tablename__ = "Meet"
 
@@ -352,6 +492,9 @@ class Meet(Base):
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     results: Mapped[list["Result"]] = relationship(back_populates="meet", cascade="all, delete-orphan")
+    competition_segment: Mapped["CompetitionSegment | None"] = relationship(
+        back_populates="legacy_meet", uselist=False
+    )
 
     __table_args__ = (
         Index("Meet_date_idx", "date"),
@@ -372,6 +515,7 @@ class Result(Base):
     seedTime: Mapped[str | None] = mapped_column(String, nullable=True)
     placement: Mapped[int | None] = mapped_column(Integer, nullable=True)
     isDQ: Mapped[bool] = mapped_column(Boolean, default=False)
+    resultStatus: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
     dqCode: Mapped[str | None] = mapped_column(String, nullable=True)
     dqDescription: Mapped[str | None] = mapped_column(String, nullable=True)
     isGuest: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -388,18 +532,27 @@ class Result(Base):
     ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)
     parserVersion: Mapped[str | None] = mapped_column(String, nullable=True)
     sourceEventNumber: Mapped[str | None] = mapped_column(String, nullable=True)
+    sessionId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("CompetitionSession.id", ondelete="RESTRICT"), nullable=True
+    )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     swimmer: Mapped["Swimmer"] = relationship(back_populates="results")
     meet: Mapped["Meet"] = relationship(back_populates="results")
+    competition_session: Mapped["CompetitionSession | None"] = relationship(back_populates="results")
 
     __table_args__ = (
         Index("Result_swimmerId_idx", "swimmerId"),
         Index("Result_meetId_idx", "meetId"),
         Index("Result_event_idx", "event"),
-        Index("Result_contentHash_idx", "contentHash"),
+        Index("Result_contentHash_uq", "contentHash", unique=True),
+        Index("Result_sessionId_idx", "sessionId"),
         Index("Result_dedup_idx", "swimmerId", "meetId", "event", "round", "swimDate"),
+        CheckConstraint(
+            '"resultStatus" IN (\'finished\', \'dq\', \'ns\', \'dns\', \'dnf\', \'scratched\', \'unknown\')',
+            name="Result_status_ck",
+        ),
     )
 
     def __repr__(self) -> str:
@@ -418,6 +571,7 @@ class RelayResult(Base):
     seedTime: Mapped[str | None] = mapped_column(String, nullable=True)
     placement: Mapped[int | None] = mapped_column(Integer, nullable=True)
     isDQ: Mapped[bool] = mapped_column(Boolean, default=False)
+    resultStatus: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")
     dqCode: Mapped[str | None] = mapped_column(String, nullable=True)
     dqDescription: Mapped[str | None] = mapped_column(String, nullable=True)
     isExhibition: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -425,6 +579,8 @@ class RelayResult(Base):
     swimDate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     splits: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON string
     reactionTime: Mapped[str | None] = mapped_column(String, nullable=True)
+    legParseStatus: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    legParseWarning: Mapped[str | None] = mapped_column(Text, nullable=True)
     contentHash: Mapped[str | None] = mapped_column(String, nullable=True)
     rawTeamName: Mapped[str | None] = mapped_column(String, nullable=True)  # immutable parsed source value
     sourceDocumentSha256: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -432,16 +588,29 @@ class RelayResult(Base):
     ingestionRunId: Mapped[int | None] = mapped_column(Integer, ForeignKey("IngestionRun.id"), nullable=True)
     parserVersion: Mapped[str | None] = mapped_column(String, nullable=True)
     sourceEventNumber: Mapped[str | None] = mapped_column(String, nullable=True)
+    sessionId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("CompetitionSession.id", ondelete="RESTRICT"), nullable=True
+    )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     meet: Mapped["Meet"] = relationship()
+    competition_session: Mapped["CompetitionSession | None"] = relationship(back_populates="relay_results")
     legs: Mapped[list["RelayLeg"]] = relationship(back_populates="relay_result", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("RelayResult_meetId_idx", "meetId"),
         Index("RelayResult_event_idx", "event"),
-        Index("RelayResult_contentHash_idx", "contentHash"),
+        Index("RelayResult_contentHash_uq", "contentHash", unique=True),
+        Index("RelayResult_sessionId_idx", "sessionId"),
+        CheckConstraint(
+            '"legParseStatus" IS NULL OR "legParseStatus" IN (\'complete\', \'partial\', \'unavailable\')',
+            name="RelayResult_leg_parse_status_ck",
+        ),
+        CheckConstraint(
+            '"resultStatus" IN (\'finished\', \'dq\', \'ns\', \'dns\', \'dnf\', \'scratched\', \'unknown\')',
+            name="RelayResult_status_ck",
+        ),
     )
 
     def __repr__(self) -> str:

@@ -7,6 +7,8 @@ import {
   listEvents,
   getResult,
   displayName,
+  resultDisplayValue,
+  resultStatusLabel,
   type CombinedResultItem,
   type ResultDetail,
   type PaginationInfo,
@@ -355,6 +357,7 @@ export default function ResultsPage() {
                     : results.map((result, index) => {
                         const rowKey = `${result.type}-${result.id}`;
                         const isExpanded = expandedRow === result.id && ((result.type === "individual") || (result.type === "relay"));
+                        const statusLabel = resultStatusLabel(result.status, result.is_dq);
 
                         return (
                           <React.Fragment key={result.id}>
@@ -414,13 +417,9 @@ export default function ResultsPage() {
 
                               {/* Time */}
                               <td className="px-6 py-4 whitespace-nowrap text-right">
-                                {result.is_dq || !result.time ? (
-                                  <span className="text-sm text-gray-400">--</span>
-                                ) : (
-                                  <span className="text-sm font-mono font-bold text-ssa-navy">
-                                    {result.time}
-                                  </span>
-                                )}
+                                <span className="text-sm font-mono font-bold text-ssa-navy">
+                                  {resultDisplayValue(result.status, result.time, result.is_dq)}
+                                </span>
                               </td>
 
                               {/* Round */}
@@ -460,9 +459,9 @@ export default function ResultsPage() {
 
                               {/* Status */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
-                                {result.is_dq ? (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 ring-1 ring-red-200">
-                                    DQ
+                                {statusLabel ? (
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${statusLabel === "DQ" ? "bg-red-100 text-red-700 ring-red-200" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>
+                                    {statusLabel}
                                   </span>
                                 ) : result.type === "relay" ? (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">

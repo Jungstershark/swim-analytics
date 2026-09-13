@@ -1,4 +1,5 @@
 """Tests for Slice 3 browser read models."""
+import json
 
 from datetime import datetime
 
@@ -16,6 +17,8 @@ from app.browser import (
     browser_swimmer_detail,
     list_browser_swimmers,
     make_event_key,
+    no_time_warning,
+    source_warning,
 )
 from app.database import Base
 from app.models import Meet, ParseJob, RawDocument, RelayLeg, RelayResult, Result, Swimmer
@@ -45,7 +48,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
     parse_job = ParseJob(
         rawDocumentId=raw.id,
         parserName="hytek",
-        parserVersion="hytek-v1",
+        parserVersion="hytek-v2",
         status="succeeded",
         confidenceScore=100,
         confidencePassed=True,
@@ -70,6 +73,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
             seedTime="25.00",
             placement=1,
             round="Final",
+            resultStatus="finished",
             swimDate=datetime(2026, 3, 17),
             sourceDocumentSha256=raw.sha256,
             parseJobId=parse_job.id,
@@ -82,6 +86,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
             time="25.11",
             placement=2,
             round="Final",
+            resultStatus="finished",
             swimDate=datetime(2026, 3, 17),
             sourceDocumentSha256=raw.sha256,
             parseJobId=parse_job.id,
@@ -94,6 +99,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
             time="54.99",
             placement=3,
             round="Final",
+            resultStatus="finished",
             swimDate=datetime(2026, 3, 18),
             sourceDocumentSha256=raw.sha256,
             parseJobId=parse_job.id,
@@ -106,6 +112,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
             time="31.00",
             placement=1,
             round="Final",
+            resultStatus="finished",
             swimDate=datetime(2026, 3, 17),
             sourceEventNumber="31",
         ),
@@ -119,6 +126,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
         time="1:40.00",
         placement=1,
         round="Final",
+        resultStatus="finished",
         swimDate=datetime(2026, 3, 17),
         sourceDocumentSha256=raw.sha256,
         parseJobId=parse_job.id,
@@ -191,6 +199,33 @@ def test_browser_event_is_paginated_row_owner_with_discriminators_and_sources():
     assert row["swimmer"]["name"] == "Pung, Zhi En Timothy"
 
 
+def test_browser_event_exposes_official_no_swim_status_without_false_no_time_warning():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    ns_result = Result(
+        swimmerId=seeded["swimmer"].id,
+        meetId=seeded["meet"].id,
+        event="Men 15 & Over 200 LC Meter Freestyle",
+        time=None,
+        placement=None,
+        isDQ=False,
+        resultStatus="dns",
+        round="Prelim",
+        swimDate=datetime(2026, 3, 18),
+        sourceDocumentSha256="abc123",
+        parseJobId=1,
+        sourceEventNumber="19",
+    )
+    db.add(ns_result)
+    db.commit()
+
+    event_key = make_event_key(seeded["meet"].id, ns_result.event, "19")
+    row = browser_event(db, meet_id=seeded["meet"].id, event_key=event_key)["data"][0]
+
+    assert row["status"] == "dns"
+    assert "no_time_result" not in {warning["type"] for warning in row["warnings"]}
+
+
 def test_browser_event_includes_relay_rows_and_leg_identity_contract():
     db = _test_session()
     seeded = _seed_browser_fixture(db)
@@ -204,6 +239,22 @@ def test_browser_event_includes_relay_rows_and_leg_identity_contract():
     assert row["source"]["source_scope"] == "parent_relay_result"
     assert row["legs"][0]["matched_by"] == "relay_leg_swimmer_id"
     assert row["legs"][0]["identity_match_confidence"] == "high"
+
+
+def test_browser_relay_warning_uses_plain_athlete_facing_copy():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    relay = seeded["relay"]
+    relay.legParseStatus = "partial"
+    relay.legParseWarning = "leg 3: corrupted name structure; missing safe legs [3]"
+    db.commit()
+    event_key = make_event_key(seeded["meet"].id, relay.event, relay.sourceEventNumber)
+
+    row = browser_event(db, meet_id=seeded["meet"].id, event_key=event_key)["data"][0]
+    warning = next(warning for warning in row["warnings"] if warning["type"] == "relay_legs_quarantined")
+
+    assert warning["message"] == "Some relay swimmers could not be verified from the official result."
+    assert "corrupted name structure" not in warning["message"]
 
 
 def test_browser_swimmer_detail_keeps_relay_history_out_of_pbs():
@@ -221,6 +272,155 @@ def test_browser_swimmer_detail_keeps_relay_history_out_of_pbs():
     assert payload["relay_history"][0]["row_type"] == "relay"
 
 
+def test_browser_swimmer_detail_includes_relay_only_meets_and_events_in_generic_totals():
+    db = _test_session()
+    meet = Meet(name="Relay Only Meet", startDate=datetime(2026, 7, 1), parserFormat="hytek")
+    swimmer = Swimmer(name="Relay, Only", age=15, team="Example Club")
+    db.add_all([meet, swimmer])
+    db.flush()
+    relay = RelayResult(
+        meetId=meet.id,
+        event="Mixed 4x50 SC Meter Freestyle Relay",
+        teamName="Example Club",
+        relayLetter="A",
+        time="1:50.00",
+        round="Timed Final",
+        swimDate=datetime(2026, 7, 1),
+    )
+    db.add(relay)
+    db.flush()
+    db.add(RelayLeg(
+        relayResultId=relay.id,
+        legNumber=1,
+        swimmerId=swimmer.id,
+        swimmerName=swimmer.name,
+        age=swimmer.age,
+    ))
+    db.commit()
+
+    payload = browser_swimmer_detail(db, swimmer.id)
+
+    assert payload["stats"]["individual_result_count"] == 0
+    assert payload["stats"]["relay_result_count"] == 1
+    assert payload["stats"]["meet_count"] == 1
+    assert payload["stats"]["event_count"] == 1
+    assert payload["course_history"] == []
+
+
+def test_browser_swimmer_detail_groups_history_course_first_with_fastest_recorded():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    swimmer = seeded["swimmer"]
+    meet = seeded["meet"]
+    db.add_all([
+        Result(
+            swimmerId=swimmer.id,
+            meetId=meet.id,
+            event="Men Open 50 SC Meter Freestyle",
+            time="23.90",
+            placement=2,
+            round="Final",
+            resultStatus="finished",
+            swimDate=datetime(2026, 2, 1),
+            splits=json.dumps([{"distance": 25, "cumulative": "11.50", "split": None}]),
+            sourceDocumentSha256="abc123",
+            parseJobId=1,
+            sourceEventNumber="201",
+        ),
+        Result(
+            swimmerId=swimmer.id,
+            meetId=meet.id,
+            event="Men 25-29 50 SC Meter Freestyle",
+            time="23.70",
+            placement=1,
+            round="Final",
+            resultStatus="finished",
+            swimDate=datetime(2026, 2, 2),
+            sourceDocumentSha256="abc123",
+            parseJobId=1,
+            sourceEventNumber="202",
+        ),
+        Result(
+            swimmerId=swimmer.id,
+            meetId=meet.id,
+            event="Men Open 50 SC Meter Freestyle",
+            time=None,
+            round="Final",
+            resultStatus="dq",
+            isDQ=True,
+            swimDate=datetime(2026, 2, 3),
+            sourceDocumentSha256="abc123",
+            parseJobId=1,
+            sourceEventNumber="203",
+        ),
+        Result(
+            swimmerId=swimmer.id,
+            meetId=meet.id,
+            event="Men Open 50 SC Meter Freestyle",
+            time="1.00",
+            round="Final",
+            resultStatus="unknown",
+            swimDate=datetime(2026, 2, 4),
+            sourceDocumentSha256="abc123",
+            parseJobId=1,
+            sourceEventNumber="204",
+        ),
+    ])
+    db.commit()
+
+    payload = browser_swimmer_detail(db, swimmer.id)
+
+    assert [group["course"] for group in payload["course_history"]] == ["LCM", "SCM"]
+    scm = next(group for group in payload["course_history"] if group["course"] == "SCM")
+    event = scm["events"][0]
+    assert event["event"] == "50 Freestyle"
+    assert payload["stats"]["event_count"] == 4
+    assert event["canonical_event_key"] == "scm-50-freestyle"
+    assert event["fastest_recorded"]["time"] == "23.70"
+    assert event["performance_count"] == 4
+    assert event["finished_performance_count"] == 2
+    assert [row["swim_date"] for row in event["performances"]] == ["2026-02-01", "2026-02-02", "2026-02-03", "2026-02-04"]
+    assert event["split_coverage"] == {"available": 1, "total": 4}
+    assert event["performances"][0]["splits"][0]["distance"] == 25
+
+
+def test_athlete_visible_warning_copy_does_not_expose_parser_or_database_jargon():
+    messages = [
+        source_warning("result", 1, None, None)[0]["message"],
+        no_time_warning("result", 1, False, "not-a-time")[0]["message"],
+    ]
+
+    banned = {"hash", "parse", "parser", "provenance", "database", "job"}
+    assert all(not any(word in message.lower() for word in banned) for message in messages)
+
+
+def test_browser_swimmer_detail_does_not_merge_lcm_and_scm_bests():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    swimmer = seeded["swimmer"]
+    meet = seeded["meet"]
+    db.add(Result(
+        swimmerId=swimmer.id,
+        meetId=meet.id,
+        event="Men Open 50 SC Meter Freestyle",
+        time="23.00",
+        round="Final",
+        resultStatus="finished",
+        swimDate=datetime(2026, 2, 1),
+        sourceDocumentSha256="abc123",
+        parseJobId=1,
+        sourceEventNumber="201",
+    ))
+    db.commit()
+
+    payload = browser_swimmer_detail(db, swimmer.id)
+    lcm = next(group for group in payload["course_history"] if group["course"] == "LCM")
+    scm = next(group for group in payload["course_history"] if group["course"] == "SCM")
+
+    assert next(event for event in lcm["events"] if event["event"] == "50 Freestyle")["fastest_recorded"]["time"] == "24.51"
+    assert scm["events"][0]["fastest_recorded"]["time"] == "23.00"
+
+
 def test_browser_data_quality_surfaces_parser_contaminated_names_and_missing_sources():
     db = _test_session()
     _seed_browser_fixture(db)
@@ -233,6 +433,22 @@ def test_browser_data_quality_surfaces_parser_contaminated_names_and_missing_sou
     suspicious = next(w for w in payload["data"] if w["type"] == "suspicious_swimmer_name")
     assert suspicious["entity_kind"] == "swimmer"
     assert suspicious["source_fields"] == ["Swimmer.name"]
+
+
+def test_browser_data_quality_counts_and_paginates_beyond_200_warnings():
+    db = _test_session()
+    db.add_all([
+        Swimmer(name=f"Athlete {index} LC Meter Freestyle", age=12, team="Example")
+        for index in range(201)
+    ])
+    db.commit()
+
+    payload = browser_data_quality(db, page=5, limit=50)
+
+    assert payload["summary"] == {"suspicious_swimmer_name": 201}
+    assert payload["pagination"]["total"] == 201
+    assert payload["pagination"]["total_pages"] == 5
+    assert len(payload["data"]) == 1
 
 
 def test_browser_get_helpers_are_read_only_for_domain_counts():
@@ -300,6 +516,40 @@ def test_browser_api_routes_smoke_with_real_response_contracts():
         data_quality = client.get("/api/browser/data-quality")
         assert data_quality.status_code == 200
         assert "suspicious_swimmer_name" in data_quality.json()["summary"]
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_legacy_swimmer_endpoint_excludes_unknown_status_from_personal_bests():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    swimmer = seeded["swimmer"]
+    meet = seeded["meet"]
+    db.add(Result(
+        swimmerId=swimmer.id,
+        meetId=meet.id,
+        event="Men 15 & Over 50 LC Meter Freestyle",
+        time="1.00",
+        placement=1,
+        round="Final",
+        resultStatus="unknown",
+        swimDate=datetime(2026, 3, 18),
+        sourceEventNumber="17",
+    ))
+    db.commit()
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        response = TestClient(main.app).get(f"/api/swimmers/{swimmer.id}")
+        assert response.status_code == 200
+        personal_best = next(
+            item for item in response.json()["personal_bests"]
+            if item["event"] == "Men 15 & Over 50 LC Meter Freestyle"
+        )
+        assert personal_best["time"] == "24.51"
     finally:
         main.app.dependency_overrides.clear()
 

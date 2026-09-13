@@ -9,6 +9,7 @@ contracts rather than authoritative domain objects.
 from __future__ import annotations
 
 import math
+import json
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -54,6 +55,63 @@ def make_event_key(meet_id: int, event: str, source_event_number: str | None = N
     return "-".join(parts)
 
 
+def canonical_individual_event(event: str) -> dict[str, str | int | None]:
+    """Derive a course-separated individual-event identity from source text.
+
+    The source label remains authoritative and is still returned on each
+    performance row. This derived key exists only for longitudinal browsing;
+    ambiguous labels stay visibly unknown instead of being coerced.
+    """
+    course_match = re.search(r"\b(LC|SC)\s+Meter\b", event, re.IGNORECASE)
+    distance_match = re.search(r"\b(\d+)\s+(?:LC|SC)\s+Meter\b", event, re.IGNORECASE)
+    course = {"LC": "LCM", "SC": "SCM"}.get(course_match.group(1).upper()) if course_match else None
+
+    stroke = None
+    stroke_patterns = (
+        (r"\b(?:Individual Medley|IM)\b", "Individual Medley"),
+        (r"\bFreestyle\b", "Freestyle"),
+        (r"\bBackstroke\b", "Backstroke"),
+        (r"\bBreaststroke\b", "Breaststroke"),
+        (r"\bButterfly\b", "Butterfly"),
+    )
+    for pattern, label in stroke_patterns:
+        if re.search(pattern, event, re.IGNORECASE):
+            stroke = label
+            break
+
+    distance = int(distance_match.group(1)) if distance_match else None
+    if course and distance and stroke and "Relay" not in event:
+        label = f"{distance} {stroke}"
+        return {
+            "course": course,
+            "distance_m": distance,
+            "stroke": stroke,
+            "event": label,
+            "canonical_event_key": f"{course.lower()}-{distance}-{slugify(stroke)}",
+            "normalization_status": "derived_from_source_label",
+        }
+    return {
+        "course": "Unknown",
+        "distance_m": distance,
+        "stroke": stroke,
+        "event": event,
+        "canonical_event_key": f"unknown-{slugify(event)}",
+        "normalization_status": "raw_event_string",
+    }
+
+
+def parsed_splits(value: str | None) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [split for split in parsed if isinstance(split, dict)]
+
+
 def suspicious_name_warnings(swimmer: Swimmer | None, *, sample_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     if swimmer is None:
         return []
@@ -84,7 +142,7 @@ def source_warning(entity_kind: str, entity_id: int, source_document_sha256: str
             "severity": "warning",
             "entity_kind": entity_kind,
             "entity_id": entity_id,
-            "message": "Result is missing source document hash or parse job provenance.",
+            "message": "The official source is not linked to this result.",
             "count": 1,
             "sample_rows": [{f"{entity_kind}_id": entity_id}],
             "source_fields": ["sourceDocumentSha256", "parseJobId"],
@@ -92,8 +150,14 @@ def source_warning(entity_kind: str, entity_id: int, source_document_sha256: str
     ]
 
 
-def no_time_warning(entity_kind: str, entity_id: int, is_dq: bool, time: str | None) -> list[dict[str, Any]]:
-    if is_dq or time_to_seconds(time or "") is not None:
+def no_time_warning(
+    entity_kind: str,
+    entity_id: int,
+    is_dq: bool,
+    time: str | None,
+    status: str = "unknown",
+) -> list[dict[str, Any]]:
+    if is_dq or status in {"dq", "ns", "dns", "dnf", "scratched"} or time_to_seconds(time or "") is not None:
         return []
     return [
         {
@@ -101,10 +165,10 @@ def no_time_warning(entity_kind: str, entity_id: int, is_dq: bool, time: str | N
             "severity": "info",
             "entity_kind": entity_kind,
             "entity_id": entity_id,
-            "message": "Non-DQ result has no parseable time.",
+            "message": "This result does not include a valid recorded time.",
             "count": 1,
             "sample_rows": [{f"{entity_kind}_id": entity_id}],
-            "source_fields": ["time", "isDQ"],
+            "source_fields": ["time", "isDQ", "resultStatus"],
         }
     ]
 
@@ -382,7 +446,7 @@ def browser_event(
         return None
     event_group = next((g for g in meet_payload["event_groups"] if g["event_key"] == event_key), None)
     if event_group is None:
-        return {"event_group": None, "data": [], "pagination": pagination(page, limit, 0), "warnings": [{"type": "event_key_not_found", "severity": "warning", "message": "Event key was not found for this meet."}]}
+        return {"event_group": None, "data": [], "pagination": pagination(page, limit, 0), "warnings": [{"type": "event_key_not_found", "severity": "warning", "message": "This event was not found for the meet."}]}
 
     individual_rows = []
     relay_rows = []
@@ -424,7 +488,7 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
     pbs = []
     by_event: dict[str, tuple[Result, float]] = {}
     for r in results:
-        if r.isDQ:
+        if r.isDQ or r.resultStatus != "finished":
             continue
         seconds = time_to_seconds(r.time or "")
         if seconds is None:
@@ -448,6 +512,51 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
             "results": [_individual_event_row(r) for r in event_results],
         })
 
+    canonical_groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for result in results:
+        dimensions = canonical_individual_event(result.event)
+        group_key = (str(dimensions["course"]), str(dimensions["canonical_event_key"]))
+        group = canonical_groups.setdefault(group_key, {**dimensions, "source_event_labels": set(), "results": []})
+        group["source_event_labels"].add(result.event)
+        group["results"].append(result)
+
+    course_events: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for (_course, _event_key), group in canonical_groups.items():
+        event_results = sorted(
+            group.pop("results"),
+            key=lambda result: (
+                display_date(result.swimDate or result.meet.startDate) or "9999-12-31",
+                result.id,
+            ),
+        )
+        eligible = []
+        for result in event_results:
+            seconds = time_to_seconds(result.time or "")
+            if result.isDQ or result.resultStatus != "finished" or seconds is None:
+                continue
+            eligible.append((result, seconds))
+        fastest = min(eligible, key=lambda item: item[1])[0] if eligible else None
+        performance_rows = [_individual_event_row(result) for result in event_results]
+        event_payload = {
+            **group,
+            "source_event_labels": sorted(group["source_event_labels"]),
+            "performance_count": len(event_results),
+            "finished_performance_count": len(eligible),
+            "fastest_recorded": _individual_event_row(fastest) if fastest else None,
+            "split_coverage": {
+                "available": sum(bool(row["splits"]) for row in performance_rows),
+                "total": len(performance_rows),
+            },
+            "performances": performance_rows,
+        }
+        course_events[str(group["course"])].append(event_payload)
+
+    course_order = {"LCM": 0, "SCM": 1, "Unknown": 2}
+    course_history = []
+    for course, events in sorted(course_events.items(), key=lambda item: course_order.get(item[0], 99)):
+        events.sort(key=lambda event: (event["distance_m"] is None, event["distance_m"] or 999999, event["stroke"] or "", event["event"]))
+        course_history.append({"course": course, "event_count": len(events), "events": events})
+
     relay_history = []
     for rr in sorted(relays, key=lambda rr: rr.swimDate or rr.meet.startDate):
         row = _relay_event_row(rr)
@@ -463,12 +572,16 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
         "stats": {
             "individual_result_count": len(results),
             "relay_result_count": len(relays),
-            "meet_count": len({r.meetId for r in results}),
-            "event_count": len({r.event for r in results}),
+            "meet_count": len({r.meetId for r in results} | {rr.meetId for rr in relays}),
+            "event_count": (
+                sum(group["event_count"] for group in course_history)
+                + len({rr.event for rr in relays})
+            ),
             "warning_count": len(warnings),
         },
         "personal_bests": pbs,
         "event_history": event_history,
+        "course_history": course_history,
         "relay_history": relay_history,
         "warnings": warnings,
     }
@@ -476,13 +589,13 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
 
 def browser_data_quality(db: Session, *, page: int = 1, limit: int = 50) -> dict[str, Any]:
     warnings = []
-    suspicious = db.query(Swimmer).filter(_suspicious_name_sql_expr(Swimmer.name)).limit(200).all()
+    suspicious = db.query(Swimmer).filter(_suspicious_name_sql_expr(Swimmer.name)).all()
     for s in suspicious:
         warnings.extend(suspicious_name_warnings(s))
-    missing_results = db.query(Result).filter(or_(Result.sourceDocumentSha256.is_(None), Result.parseJobId.is_(None))).limit(200).all()
+    missing_results = db.query(Result).filter(or_(Result.sourceDocumentSha256.is_(None), Result.parseJobId.is_(None))).all()
     for r in missing_results:
         warnings.extend(source_warning("result", r.id, r.sourceDocumentSha256, r.parseJobId))
-    missing_relays = db.query(RelayResult).filter(or_(RelayResult.sourceDocumentSha256.is_(None), RelayResult.parseJobId.is_(None))).limit(200).all()
+    missing_relays = db.query(RelayResult).filter(or_(RelayResult.sourceDocumentSha256.is_(None), RelayResult.parseJobId.is_(None))).all()
     for rr in missing_relays:
         warnings.extend(source_warning("relay_result", rr.id, rr.sourceDocumentSha256, rr.parseJobId))
 
@@ -498,7 +611,7 @@ def _individual_event_row(r: Result) -> dict[str, Any]:
     warnings = []
     warnings.extend(suspicious_name_warnings(r.swimmer, sample_rows=[{"result_id": r.id, "meet_id": r.meetId, "event_key": make_event_key(r.meetId, r.event, r.sourceEventNumber)}]))
     warnings.extend(source_warning("result", r.id, r.sourceDocumentSha256, r.parseJobId))
-    warnings.extend(no_time_warning("result", r.id, r.isDQ, r.time))
+    warnings.extend(no_time_warning("result", r.id, r.isDQ, r.time, r.resultStatus))
     return {
         "row_type": "individual",
         "id": r.id,
@@ -510,10 +623,12 @@ def _individual_event_row(r: Result) -> dict[str, Any]:
         "time": r.time,
         "seed_time": r.seedTime,
         "is_dq": r.isDQ,
+        "status": r.resultStatus,
         "dq_code": r.dqCode,
         "dq_description": r.dqDescription,
         "is_guest": r.isGuest,
         "qualifier": r.qualifier,
+        "splits": parsed_splits(r.splits),
         "swimmer": swimmer_brief(r.swimmer),
         "meet": meet_brief(r.meet),
         "source": {"document_sha256": r.sourceDocumentSha256, "parse_job_id": r.parseJobId, "source_scope": "result"},
@@ -524,7 +639,18 @@ def _individual_event_row(r: Result) -> dict[str, Any]:
 def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
     warnings = []
     warnings.extend(source_warning("relay_result", rr.id, rr.sourceDocumentSha256, rr.parseJobId))
-    warnings.extend(no_time_warning("relay_result", rr.id, rr.isDQ, rr.time))
+    warnings.extend(no_time_warning("relay_result", rr.id, rr.isDQ, rr.time, rr.resultStatus))
+    if rr.legParseStatus in {"partial", "unavailable"}:
+        warnings.append({
+            "type": "relay_legs_quarantined",
+            "severity": "warning",
+            "entity_kind": "relay_result",
+            "entity_id": rr.id,
+            "message": "Some relay swimmers could not be verified from the official result.",
+            "count": 1,
+            "sample_rows": [{"relay_result_id": rr.id}],
+            "source_fields": ["RelayResult.legParseStatus", "RelayResult.legParseWarning"],
+        })
     legs = []
     for leg in sorted(rr.legs, key=lambda l: l.legNumber):
         confidence = "high" if leg.swimmerId else "unmatched"
@@ -562,9 +688,12 @@ def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
         "time": rr.time,
         "seed_time": rr.seedTime,
         "is_dq": rr.isDQ,
+        "status": rr.resultStatus,
         "team_name": rr.teamName,
         "relay_letter": rr.relayLetter,
         "is_exhibition": rr.isExhibition,
+        "leg_parse_status": rr.legParseStatus,
+        "leg_parse_warning": rr.legParseWarning,
         "legs": legs,
         "meet": meet_brief(rr.meet),
         "source": {"document_sha256": rr.sourceDocumentSha256, "parse_job_id": rr.parseJobId, "source_scope": "parent_relay_result"},

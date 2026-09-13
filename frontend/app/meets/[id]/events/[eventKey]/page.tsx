@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   displayName,
+  resultDisplayValue,
   getBrowserEvent,
   type BrowserEventDetail,
   type BrowserEventRow,
@@ -75,7 +76,7 @@ export default function MeetEventPage() {
           {detail?.event_group && (
             <p className="text-sm text-gray-500 mt-1">
               {detail.event_group.source_event_number ? `Event ${detail.event_group.source_event_number} · ` : ""}
-              {detail.event_group.total_rows.toLocaleString()} rows · derived from raw result strings
+              {detail.event_group.total_rows.toLocaleString()} results
             </p>
           )}
         </div>
@@ -85,9 +86,9 @@ export default function MeetEventPage() {
         {error ? (
           <StateCard message={error} tone="error" backHref={`/meets/${meetId}`} />
         ) : loading ? (
-          <div className="card p-8 animate-pulse text-gray-400">Loading rows...</div>
+          <div className="card p-8 animate-pulse text-gray-400">Loading results...</div>
         ) : !detail?.event_group ? (
-          <StateCard message="This event key was not found for the meet. No fuzzy fallback was applied." backHref={`/meets/${meetId}`} />
+          <StateCard message="This event was not found for the meet." backHref={`/meets/${meetId}`} />
         ) : (
           <>
             <div className="card p-4 mb-6">
@@ -120,7 +121,7 @@ export default function MeetEventPage() {
                   </tbody>
                 </table>
               </div>
-              {detail.data.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">No rows match these filters.</div>}
+              {detail.data.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">No results match these filters.</div>}
             </div>
 
             {totalPages > 1 && (
@@ -157,7 +158,7 @@ function ResultRow({ row, index }: { row: BrowserEventRow; index: number }) {
       </td>
       <td className="px-4 py-3 text-center"><span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{row.round || "-"}</span></td>
       <td className="px-4 py-3 text-center text-sm text-gray-600">{row.placement ?? "--"}</td>
-      <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{row.is_dq ? "DQ" : row.time || "--"}</td>
+      <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{resultDisplayValue(row.status, row.time, row.is_dq)}</td>
       <td className="px-4 py-3 text-center">
         {row.source.document_sha256 ? <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">source linked</span> : <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded">missing source</span>}
       </td>

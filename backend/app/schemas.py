@@ -105,6 +105,7 @@ class ResultBase(BaseModel):
     seed_time: Optional[str] = None
     placement: Optional[int] = None
     is_dq: bool = False
+    status: str = "unknown"
     dq_code: Optional[str] = None
     dq_description: Optional[str] = None
     is_guest: bool = False
@@ -164,9 +165,12 @@ class RelayResultBrief(BaseModel):
     seed_time: Optional[str] = None
     placement: Optional[int] = None
     is_dq: bool = False
+    status: str = "unknown"
     is_exhibition: bool = False
     round: Optional[str] = None
     swim_date: Optional[datetime] = None
+    leg_parse_status: Optional[str] = None
+    leg_parse_warning: Optional[str] = None
     legs: list[RelayLegBrief] = []
     meet: MeetBrief
     model_config = {"from_attributes": True}
@@ -198,6 +202,7 @@ class CombinedResultItem(BaseModel):
     seed_time: Optional[str] = None
     placement: Optional[int] = None
     is_dq: bool = False
+    status: str = "unknown"
     round: Optional[str] = None
     swim_date: Optional[datetime] = None
     qualifier: Optional[str] = None
@@ -233,6 +238,7 @@ class PreviewResultRow(BaseModel):
     round: str
     placement: Optional[int] = None
     is_dq: bool = False
+    status: str = "unknown"
     is_guest: bool = False
     qualifier: Optional[str] = None
 

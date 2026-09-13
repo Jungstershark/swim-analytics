@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -102,13 +103,13 @@ def test_record_parse_job_and_ingestion_run_capture_counts(tmp_path: Path):
         db,
         mode="preview",
         input_scope="upload:result.pdf",
-        parser_version="hytek-v1",
+        parser_version="hytek-v2",
     )
     parse_job = record_parse_job(
         db,
         raw_document=raw_document,
         parser_name="hytek",
-        parser_version="hytek-v1",
+        parser_version="hytek-v2",
         status="succeeded",
         confidence_score=1.0,
         confidence_passed=True,
@@ -145,13 +146,13 @@ def test_process_parsed_meet_writes_result_provenance(tmp_path: Path):
         db,
         mode="append",
         input_scope="upload:56th-snag-seniors-2026-results-day-1-session-1.pdf",
-        parser_version="hytek-v1",
+        parser_version="hytek-v2",
     )
     parse_job = record_parse_job(
         db,
         raw_document=raw_document,
         parser_name="hytek",
-        parser_version="hytek-v1",
+        parser_version="hytek-v2",
         status="succeeded",
         confidence_score=1.0,
         confidence_passed=True,
@@ -183,7 +184,7 @@ Preliminaries
         raw_document=raw_document,
         parse_job=parse_job,
         ingestion_run=ingestion_run,
-        parser_version="hytek-v1",
+        parser_version="hytek-v2",
     )
     db.flush()
 
@@ -192,7 +193,7 @@ Preliminaries
     assert result.sourceDocumentSha256 == raw_document.sha256
     assert result.parseJobId == parse_job.id
     assert result.ingestionRunId == ingestion_run.id
-    assert result.parserVersion == "hytek-v1"
+    assert result.parserVersion == "hytek-v2"
     assert result.sourceEventNumber == "101"
     assert result.rawSwimmerName == "WU, Dylan Jiaxu"
     assert result.rawTeamName == "Pacific Swimming Club"
@@ -291,6 +292,27 @@ Finals
     assert db.query(Result).count() == 1
 
 
+def test_matching_result_content_hash_rejects_changed_source_evidence():
+    db = _test_session()
+    meet = Meet(name="Evidence Conflict", startDate=datetime(2026, 3, 17), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+    parsed, _confidence = parse_hytek_text(["""Evidence Conflict - 17/3/2026
+Results
+Event 101 Boys 14 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Cheong, Megan 14 X Lab 31.00 30.00"""])
+
+    _process_parsed_meet(parsed, meet, datetime(2026, 3, 17), db)
+    conflicting = deepcopy(parsed)
+    conflicting.events[0].results[0].seed_time = "30.50"
+
+    with pytest.raises(ValueError, match="Matching result content hash has conflicting evidence"):
+        _process_parsed_meet(conflicting, meet, datetime(2026, 3, 17), db)
+
+    assert db.query(Result).one().seedTime == "31.00"
+
+
 def test_legacy_hash_reimport_with_missing_age_is_idempotent():
     db = _test_session()
     meet = Meet(name="Legacy Missing Age", startDate=datetime(2026, 3, 17), parserFormat="hytek")
@@ -316,7 +338,7 @@ Finals
         parsed.events[0].event_name,
         result_source.name,
         result_source.team,
-        "Final",
+        "Timed Final",
         result_source.finals_time,
     )
     db.flush()

@@ -45,8 +45,18 @@ def is_import_eligible_document(category: str) -> bool:
     return category in {"overall_results", "other_pdf"}
 
 
-def _pdf_storage_path(archive_root: Path, sha256: str) -> Path:
+def pdf_storage_path(archive_root: Path, sha256: str) -> Path:
     return archive_root / "sha256" / sha256[:2] / f"{sha256}.pdf"
+
+
+def cleanup_unledgered_archives(db: Session, paths: set[Path]) -> None:
+    """Remove files created by a rolled-back import when no raw ledger row exists."""
+    for path in paths:
+        is_ledgered = db.query(RawDocument.id).filter(
+            RawDocument.storagePath == str(path)
+        ).first()
+        if not is_ledgered:
+            path.unlink(missing_ok=True)
 
 
 def source_reference_identity(
@@ -90,7 +100,7 @@ def record_raw_document(
     to the same document without duplicating the archived PDF bytes.
     """
     sha256 = hashlib.sha256(file_bytes).hexdigest()
-    storage_path = _pdf_storage_path(archive_root, sha256)
+    storage_path = pdf_storage_path(archive_root, sha256)
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     if not storage_path.exists():
         storage_path.write_bytes(file_bytes)

@@ -1,0 +1,170 @@
+{
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/11thsnsc-25m-2025/",
+  "downloaded_at": "2026-09-13T05:42:24.141692+00:00",
+  "pdf_count": 13,
+  "category_counts": {
+    "event_information": 1,
+    "start_list": 5,
+    "overall_results": 5,
+    "other_pdf": 1,
+    "medal_tally": 1
+  },
+  "files": [
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/09/11th-SNSC-SCM-2025-Info-Pack-v2.pdf",
+      "filename": "11th-SNSC-SCM-2025-Info-Pack-v2.pdf",
+      "category": "event_information",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 828956,
+      "sha256": "5dfacc2c3df171365c9489609747298f80ae2080a557008bd3e55aaf5fb4f4a1",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/5d/5dfacc2c3df171365c9489609747298f80ae2080a557008bd3e55aaf5fb4f4a1.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/event_information/11th-SNSC-SCM-2025-Info-Pack-v2.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-1-session-1.pdf",
+      "filename": "11th-snsc-scm-2025-start-list-day-1-session-1.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 41949,
+      "sha256": "faf64258fb01922b111212cee26cb5a80e6787f35597171c4aebf889d6e9fb38",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/fa/faf64258fb01922b111212cee26cb5a80e6787f35597171c4aebf889d6e9fb38.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/start_list/11th-snsc-scm-2025-start-list-day-1-session-1.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-2-session-2.pdf",
+      "filename": "11th-snsc-scm-2025-start-list-day-2-session-2.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 75906,
+      "sha256": "6d358a4ab433bcf135f686f63c3c69ff5ff1d0628a2a9e2875010cc51fa30ff0",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/6d/6d358a4ab433bcf135f686f63c3c69ff5ff1d0628a2a9e2875010cc51fa30ff0.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/start_list/11th-snsc-scm-2025-start-list-day-2-session-2.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-3-session-4.pdf",
+      "filename": "11th-snsc-scm-2025-start-list-day-3-session-4.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 74259,
+      "sha256": "575e003a60b9fa1a741f3940f16ef79b23f03a5e020826dadce0b09175388fa1",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/57/575e003a60b9fa1a741f3940f16ef79b23f03a5e020826dadce0b09175388fa1.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/start_list/11th-snsc-scm-2025-start-list-day-3-session-4.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-2-session-3-1.pdf",
+      "filename": "11th-snsc-scm-2025-start-list-day-2-session-3-1.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 54459,
+      "sha256": "91742afc250ccfb4bc30c0fa7a9caf8b29c801512b09b61b65a8480ebcb3c4da",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/91/91742afc250ccfb4bc30c0fa7a9caf8b29c801512b09b61b65a8480ebcb3c4da.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/start_list/11th-snsc-scm-2025-start-list-day-2-session-3-1.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-start-list-day-3-session-5.pdf",
+      "filename": "11th-snsc-scm-2025-start-list-day-3-session-5.pdf",
+      "category": "start_list",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 52809,
+      "sha256": "394c992e58ea25b2e78477924e64453b1bee9483d1ec147fad00f5c28e4c526a",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/39/394c992e58ea25b2e78477924e64453b1bee9483d1ec147fad00f5c28e4c526a.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/start_list/11th-snsc-scm-2025-start-list-day-3-session-5.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-1-session-1.pdf",
+      "filename": "11th-snsc-scm-2025-results-day-1-session-1.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 72017,
+      "sha256": "a8d4faa0704af791a4e90d5e9a978a2fcd0133562416e7aee216d3f2bad098f0",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/a8/a8d4faa0704af791a4e90d5e9a978a2fcd0133562416e7aee216d3f2bad098f0.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/overall_results/11th-snsc-scm-2025-results-day-1-session-1.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/day-2-session-2-full-results.pdf",
+      "filename": "day-2-session-2-full-results.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 197218,
+      "sha256": "936bd4ac6151dd8919c81d64c8e9d9316cbef73c744f1365a9386d96c5658ced",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/93/936bd4ac6151dd8919c81d64c8e9d9316cbef73c744f1365a9386d96c5658ced.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/overall_results/day-2-session-2-full-results.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-2-session-3.pdf",
+      "filename": "11th-snsc-scm-2025-results-day-2-session-3.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 112449,
+      "sha256": "a94890e5a1f7e7d150d1034dae52dc8c11e256d0f04bf4688f93c0525795c915",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/a9/a94890e5a1f7e7d150d1034dae52dc8c11e256d0f04bf4688f93c0525795c915.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/overall_results/11th-snsc-scm-2025-results-day-2-session-3.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-2025-results-day-3-session-4.pdf",
+      "filename": "11th-snsc-scm-2025-results-day-3-session-4.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 185296,
+      "sha256": "7d8d854e0ae3bf80582558755e2750a959c16cd913ee31ebf034c5b77fbc7645",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/7d/7d8d854e0ae3bf80582558755e2750a959c16cd913ee31ebf034c5b77fbc7645.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/overall_results/11th-snsc-scm-2025-results-day-3-session-4.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-day-3-session-5-finals.pdf",
+      "filename": "11th-snsc-scm-day-3-session-5-finals.pdf",
+      "category": "other_pdf",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 113360,
+      "sha256": "beb9f31e2782f6cee25edc694bbfe585a4e8dba6c2926518dd25a22de4fde8c6",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/be/beb9f31e2782f6cee25edc694bbfe585a4e8dba6c2926518dd25a22de4fde8c6.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/other_pdf/11th-snsc-scm-day-3-session-5-finals.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-full-results.pdf",
+      "filename": "11th-snsc-scm-full-results.pdf",
+      "category": "overall_results",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 520988,
+      "sha256": "2f16103266010b467188b1a2396a6b2809e85c315214dfacc43db99460ce9b73",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/2f/2f16103266010b467188b1a2396a6b2809e85c315214dfacc43db99460ce9b73.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/overall_results/11th-snsc-scm-full-results.pdf",
+      "filename_reused_with_new_hash": false
+    },
+    {
+      "url": "https://www.sgaquatics.org.sg/app/uploads/2025/11/11th-snsc-scm-medal-tally.pdf",
+      "filename": "11th-snsc-scm-medal-tally.pdf",
+      "category": "medal_tally",
+      "status": 200,
+      "content_type": "application/pdf",
+      "bytes": 33589,
+      "sha256": "108bb6d84776a5cff67db19e0be21a34f4fe35c81cae7baaaf6ef9943452aca3",
+      "saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/by-sha/10/108bb6d84776a5cff67db19e0be21a34f4fe35c81cae7baaaf6ef9943452aca3.pdf",
+      "filename_saved": "raw-data/sg-aquatics/events/11th-singapore-national-swimming-championships-25m-2025/medal_tally/11th-snsc-scm-medal-tally.pdf",
+      "filename_reused_with_new_hash": false
+    }
+  ]
+}
