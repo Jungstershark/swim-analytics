@@ -15,19 +15,29 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Iterable
 
-from sqlalchemy import distinct, func, or_
+from sqlalchemy import case, distinct, func, or_, select, union_all
 from sqlalchemy.orm import Session, joinedload
 
 from .models import Meet, RawDocument, RelayLeg, RelayResult, Result, SourceReference, Swimmer
 from .parsers.hytek import time_to_seconds
 
 
-_SUSPICIOUS_NAME_PATTERNS = [
-    re.compile(r"\bLC\s+Meter\b", re.IGNORECASE),
-    re.compile(r"\b(Event|Preliminaries|Finals|Seed Time|Prelim Time|Finals Time)\b", re.IGNORECASE),
-    re.compile(r"\b\d{1,2}:\d{2}\.\d{2}\b"),
-    re.compile(r"\b\d{1,2}\.\d{2}\b.*\b(MTS|qMTS|DNS|DQ)\b", re.IGNORECASE),
-]
+_SUSPICIOUS_NAME_FRAGMENTS = (
+    "lc meter",
+    "event",
+    "preliminaries",
+    "finals",
+    "seed time",
+    "prelim time",
+    "finals time",
+    "mts",
+    "qmts",
+    "dns",
+    "dq",
+    # Exact artifact found in persisted source data. Keeping this in the shared
+    # fragment contract makes Python projection and SQL filtering agree.
+    "r1:02.53",
+)
 
 
 def display_date(value: datetime | None) -> str | None:
@@ -112,12 +122,19 @@ def parsed_splits(value: str | None) -> list[dict[str, Any]]:
     return [split for split in parsed if isinstance(split, dict)]
 
 
+def _is_suspicious_name(name: str | None) -> bool:
+    value = name or ""
+    normalized_name = value.casefold()
+    return len(value) > 90 or any(
+        fragment in normalized_name for fragment in _SUSPICIOUS_NAME_FRAGMENTS
+    )
+
+
 def suspicious_name_warnings(swimmer: Swimmer | None, *, sample_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     if swimmer is None:
         return []
     name = swimmer.name or ""
-    suspicious = len(name) > 90 or any(pattern.search(name) for pattern in _SUSPICIOUS_NAME_PATTERNS)
-    if not suspicious:
+    if not _is_suspicious_name(name):
         return []
     return [
         {
@@ -246,11 +263,7 @@ def list_browser_swimmers(
         db.query(
             Result.swimmerId.label("swimmer_id"),
             func.count(Result.id).label("individual_result_count"),
-            func.count(distinct(Result.meetId)).label("meet_count"),
-            func.count(distinct(Result.event)).label("event_count"),
-            func.max(Meet.startDate).label("latest_date"),
         )
-        .join(Meet, Meet.id == Result.meetId)
         .group_by(Result.swimmerId)
         .subquery()
     )
@@ -264,16 +277,43 @@ def list_browser_swimmers(
         .group_by(RelayLeg.swimmerId)
         .subquery()
     )
+    participation = union_all(
+        select(
+            Result.swimmerId.label("swimmer_id"),
+            Result.meetId.label("meet_id"),
+            Result.event.label("event"),
+        ),
+        select(
+            RelayLeg.swimmerId.label("swimmer_id"),
+            RelayResult.meetId.label("meet_id"),
+            RelayResult.event.label("event"),
+        )
+        .join(RelayResult, RelayResult.id == RelayLeg.relayResultId)
+        .where(RelayLeg.swimmerId.isnot(None)),
+    ).subquery()
+    combined_counts = (
+        db.query(
+            participation.c.swimmer_id,
+            func.count(distinct(participation.c.meet_id)).label("meet_count"),
+            func.count(distinct(participation.c.event)).label("event_count"),
+            func.max(Meet.startDate).label("latest_date"),
+        )
+        .join(Meet, Meet.id == participation.c.meet_id)
+        .group_by(participation.c.swimmer_id)
+        .subquery()
+    )
 
     query = db.query(
         Swimmer,
         individual_counts.c.individual_result_count,
-        individual_counts.c.meet_count,
-        individual_counts.c.event_count,
-        individual_counts.c.latest_date,
+        combined_counts.c.meet_count,
+        combined_counts.c.event_count,
+        combined_counts.c.latest_date,
         relay_counts.c.relay_result_count,
     ).outerjoin(
         individual_counts, individual_counts.c.swimmer_id == Swimmer.id
+    ).outerjoin(
+        combined_counts, combined_counts.c.swimmer_id == Swimmer.id
     ).outerjoin(relay_counts, relay_counts.c.swimmer_id == Swimmer.id)
 
     if q:
@@ -292,17 +332,26 @@ def list_browser_swimmers(
         "name": Swimmer.name,
         "team": Swimmer.team,
         "result_count": func.coalesce(individual_counts.c.individual_result_count, 0),
-        "latest_meet": individual_counts.c.latest_date,
+        "latest_meet": combined_counts.c.latest_date,
     }
     sort_col = sort_map.get(sort, Swimmer.name)
     query = query.order_by(sort_col.desc().nullslast() if order == "desc" else sort_col.asc().nullslast())
 
     rows = query.offset((page - 1) * limit).limit(limit).all()
-    latest_dates = {latest_date for _swimmer, _ind_count, _meet_count, _event_count, latest_date, _relay_count in rows if latest_date is not None}
-    latest_meets_by_date = {
-        m.startDate: meet_brief(m)
-        for m in db.query(Meet).filter(Meet.startDate.in_(latest_dates)).all()
-    } if latest_dates else {}
+    page_swimmer_ids = [swimmer.id for swimmer, *_counts in rows]
+    latest_meets_by_swimmer: dict[int, dict[str, Any]] = {}
+    if page_swimmer_ids:
+        latest_rows = (
+            db.query(participation.c.swimmer_id, Meet)
+            .join(Meet, Meet.id == participation.c.meet_id)
+            .filter(participation.c.swimmer_id.in_(page_swimmer_ids))
+            .order_by(participation.c.swimmer_id, Meet.startDate.desc(), Meet.id.desc())
+            .all()
+        )
+        for swimmer_id, meet in latest_rows:
+            latest_meet = meet_brief(meet)
+            if latest_meet is not None:
+                latest_meets_by_swimmer.setdefault(swimmer_id, latest_meet)
 
     data = []
     for swimmer, individual_count, meet_count, event_count, latest_date, relay_count in rows:
@@ -317,12 +366,116 @@ def list_browser_swimmers(
                 "relay_result_count": int(relay_count or 0),
                 "meet_count": int(meet_count or 0),
                 "event_count": int(event_count or 0),
-                "latest_meet": latest_meets_by_date.get(latest_date),
+                "latest_meet": latest_meets_by_swimmer.get(swimmer.id),
                 "warning_count": len(warnings),
                 "warnings": warnings,
             }
         )
 
+    return {"data": data, "pagination": pagination(page, limit, total)}
+
+
+def list_browser_meets(
+    db: Session,
+    *,
+    page: int = 1,
+    limit: int = 50,
+    q: str | None = None,
+    sort: str = "date",
+    order: str = "desc",
+) -> dict[str, Any]:
+    """List meets with individual/relay aggregates in a constant query count."""
+    event_keys = union_all(
+        select(
+            Result.meetId.label("meet_id"),
+            Result.sourceEventNumber.label("source_event_number"),
+            Result.event.label("event"),
+        ),
+        select(
+            RelayResult.meetId.label("meet_id"),
+            RelayResult.sourceEventNumber.label("source_event_number"),
+            RelayResult.event.label("event"),
+        ),
+    ).subquery()
+    distinct_event_keys = (
+        select(
+            event_keys.c.meet_id,
+            event_keys.c.source_event_number,
+            event_keys.c.event,
+        )
+        .distinct()
+        .subquery()
+    )
+    event_counts = (
+        db.query(
+            distinct_event_keys.c.meet_id,
+            func.count().label("event_group_count"),
+        )
+        .group_by(distinct_event_keys.c.meet_id)
+        .subquery()
+    )
+    individual_counts = (
+        db.query(
+            Result.meetId.label("meet_id"),
+            func.count(Result.id).label("result_count"),
+            func.sum(
+                case(
+                    (or_(Result.sourceDocumentSha256.is_(None), Result.parseJobId.is_(None)), 1),
+                    else_=0,
+                )
+            ).label("missing_source_count"),
+        )
+        .group_by(Result.meetId)
+        .subquery()
+    )
+    relay_counts = (
+        db.query(
+            RelayResult.meetId.label("meet_id"),
+            func.count(RelayResult.id).label("result_count"),
+            func.sum(
+                case(
+                    (or_(RelayResult.sourceDocumentSha256.is_(None), RelayResult.parseJobId.is_(None)), 1),
+                    else_=0,
+                )
+            ).label("missing_source_count"),
+        )
+        .group_by(RelayResult.meetId)
+        .subquery()
+    )
+
+    query = (
+        db.query(
+            Meet,
+            event_counts.c.event_group_count,
+            individual_counts.c.result_count,
+            relay_counts.c.result_count,
+            individual_counts.c.missing_source_count,
+            relay_counts.c.missing_source_count,
+        )
+        .outerjoin(event_counts, event_counts.c.meet_id == Meet.id)
+        .outerjoin(individual_counts, individual_counts.c.meet_id == Meet.id)
+        .outerjoin(relay_counts, relay_counts.c.meet_id == Meet.id)
+    )
+    if q:
+        query = query.filter(Meet.name.ilike(f"%{q}%"))
+
+    total = query.count()
+    sort_col = Meet.startDate if sort == "date" else Meet.name
+    primary_order = sort_col.desc().nullslast() if order == "desc" else sort_col.asc().nullslast()
+    rows = query.order_by(primary_order, Meet.id.asc()).offset((page - 1) * limit).limit(limit).all()
+
+    data = []
+    for meet, event_count, individual_count, relay_count, missing_individual, missing_relay in rows:
+        individual_count = int(individual_count or 0)
+        relay_count = int(relay_count or 0)
+        data.append({
+            **meet_brief(meet),
+            "event_group_count": int(event_count or 0),
+            "individual_result_count": individual_count,
+            "relay_result_count": relay_count,
+            "total_rows": individual_count + relay_count,
+            "missing_source_count": int(missing_individual or 0) + int(missing_relay or 0),
+        })
     return {"data": data, "pagination": pagination(page, limit, total)}
 
 
@@ -559,12 +712,7 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
 
     relay_history = []
     for rr in sorted(relays, key=lambda rr: rr.swimDate or rr.meet.startDate):
-        row = _relay_event_row(rr)
-        for leg in row["legs"]:
-            if leg["swimmer_id"] == swimmer_id:
-                leg["matched_by"] = "relay_leg_swimmer_id"
-                leg["identity_match_confidence"] = "high"
-        relay_history.append(row)
+        relay_history.append(_relay_event_row(rr))
 
     warnings = suspicious_name_warnings(swimmer)
     return {
@@ -632,6 +780,7 @@ def _individual_event_row(r: Result) -> dict[str, Any]:
         "swimmer": swimmer_brief(r.swimmer),
         "meet": meet_brief(r.meet),
         "source": {"document_sha256": r.sourceDocumentSha256, "parse_job_id": r.parseJobId, "source_scope": "result"},
+        "warning_count": len(warnings),
         "warnings": warnings,
     }
 
@@ -653,10 +802,29 @@ def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
         })
     legs = []
     for leg in sorted(rr.legs, key=lambda l: l.legNumber):
-        confidence = "high" if leg.swimmerId else "unmatched"
+        linked_name = leg.swimmer.name if leg.swimmer is not None else leg.swimmerName
+        suspicious_identity = bool(leg.swimmerId) and (
+            _is_suspicious_name(leg.swimmerName) or _is_suspicious_name(linked_name)
+        )
+        confidence = "needs_review" if suspicious_identity else ("high" if leg.swimmerId else "unmatched")
         matched_by = "relay_leg_swimmer_id" if leg.swimmerId else "none"
+        identity_status = "needs_review" if suspicious_identity else ("linked" if leg.swimmerId else "unmatched")
+        leg_warnings = []
+        if suspicious_identity:
+            warning = {
+                "type": "relay_identity_needs_review",
+                "severity": "warning",
+                "entity_kind": "relay_leg",
+                "entity_id": leg.id,
+                "message": "This relay swimmer name could not be verified.",
+                "count": 1,
+                "sample_rows": [{"relay_result_id": rr.id, "relay_leg_id": leg.id}],
+                "source_fields": ["RelayLeg.swimmerId", "RelayLeg.swimmerName", "Swimmer.name"],
+            }
+            leg_warnings.append(warning)
+            warnings.append(warning)
         if not leg.swimmerId:
-            warnings.append({
+            warning = {
                 "type": "relay_identity_unmatched",
                 "severity": "warning",
                 "entity_kind": "relay_leg",
@@ -665,7 +833,9 @@ def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
                 "count": 1,
                 "sample_rows": [{"relay_result_id": rr.id, "relay_leg_id": leg.id}],
                 "source_fields": ["RelayLeg.swimmerId", "RelayLeg.swimmerName"],
-            })
+            }
+            leg_warnings.append(warning)
+            warnings.append(warning)
         legs.append({
             "leg_number": leg.legNumber,
             "swimmer_id": leg.swimmerId,
@@ -676,6 +846,9 @@ def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
             "reaction_time": leg.reactionTime,
             "matched_by": matched_by,
             "identity_match_confidence": confidence,
+            "identity_status": identity_status,
+            "warning_count": len(leg_warnings),
+            "warnings": leg_warnings,
         })
     return {
         "row_type": "relay",
@@ -697,6 +870,7 @@ def _relay_event_row(rr: RelayResult) -> dict[str, Any]:
         "legs": legs,
         "meet": meet_brief(rr.meet),
         "source": {"document_sha256": rr.sourceDocumentSha256, "parse_job_id": rr.parseJobId, "source_scope": "parent_relay_result"},
+        "warning_count": len(warnings),
         "warnings": warnings,
     }
 
@@ -718,9 +892,5 @@ def _source_no_sort(value: str | None) -> tuple[int, str]:
 def _suspicious_name_sql_expr(column: Any) -> Any:
     return or_(
         func.length(column) > 90,
-        column.ilike("%LC Meter%"),
-        column.ilike("%Prelim Time%"),
-        column.ilike("%Finals Time%"),
-        column.ilike("%Seed Time%"),
-        column.ilike("%MTS MTS%"),
+        *(column.ilike(f"%{fragment}%") for fragment in _SUSPICIOUS_NAME_FRAGMENTS),
     )

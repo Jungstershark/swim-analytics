@@ -57,7 +57,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
     swimmer = Swimmer(name="Pung, Zhi En Timothy", age=17, team="Aquatic Performance Swim Club")
     second = Swimmer(name="Chew, Wen Yu Titus", age=17, team="Aquatic Performance Swim Club")
     suspicious = Swimmer(
-        name="Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan Royston LC Meter Freestyle Seed Time",
+        name="Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan Royston",
         age=11,
         team="X Lab",
     )
@@ -142,7 +142,7 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
     return {"meet": meet, "swimmer": swimmer, "second": second, "suspicious": suspicious, "relay": relay}
 
 
-def test_browser_swimmer_list_owns_find_myself_without_per_row_loop():
+def test_browser_swimmer_list_deduplicates_same_meet_hybrid_card_aggregates_without_per_row_loop():
     db = _test_session()
     seeded = _seed_browser_fixture(db)
     statements: list[str] = []
@@ -160,10 +160,70 @@ def test_browser_swimmer_list_owns_find_myself_without_per_row_loop():
     assert row["individual_result_count"] == 2
     assert row["relay_result_count"] == 1
     assert row["meet_count"] == 1
-    assert row["event_count"] == 2
+    assert row["event_count"] == 3
     assert row["latest_meet"]["name"] == "56th SNAG Seniors"
     # Contract guard: list/card counts must not issue a count/latest query per row.
     assert len(statements) <= 4
+
+
+def test_browser_swimmer_list_includes_relay_only_card_aggregates():
+    db = _test_session()
+    meet = Meet(name="Relay Only Meet", startDate=datetime(2026, 7, 1), parserFormat="hytek")
+    swimmer = Swimmer(name="Relay, Only", age=15, team="Example Club")
+    db.add_all([meet, swimmer])
+    db.flush()
+    relay = RelayResult(
+        meetId=meet.id,
+        event="Mixed 4x50 SC Meter Freestyle Relay",
+        teamName="Example Club",
+        relayLetter="A",
+        time="1:50.00",
+        round="Timed Final",
+        swimDate=datetime(2026, 7, 1),
+    )
+    db.add(relay)
+    db.flush()
+    db.add(RelayLeg(
+        relayResultId=relay.id,
+        legNumber=1,
+        swimmerId=swimmer.id,
+        swimmerName=swimmer.name,
+        age=swimmer.age,
+    ))
+    db.commit()
+
+    row = list_browser_swimmers(db)["data"][0]
+
+    assert row["individual_result_count"] == 0
+    assert row["relay_result_count"] == 1
+    assert row["meet_count"] == 1
+    assert row["event_count"] == 1
+    assert row["latest_meet"]["id"] == meet.id
+
+
+def test_browser_swimmer_list_latest_meet_is_scoped_to_each_swimmer_on_tied_dates():
+    db = _test_session()
+    date = datetime(2026, 7, 1)
+    meet_a = Meet(name="Meet A", startDate=date, parserFormat="hytek")
+    meet_b = Meet(name="Meet B", startDate=date, parserFormat="hytek")
+    swimmer_a = Swimmer(name="Athlete, A", team="A Club")
+    swimmer_b = Swimmer(name="Athlete, B", team="B Club")
+    db.add_all([meet_a, meet_b, swimmer_a, swimmer_b])
+    db.flush()
+    relay_a = RelayResult(meetId=meet_a.id, event="Relay A", teamName="A Club")
+    relay_b = RelayResult(meetId=meet_b.id, event="Relay B", teamName="B Club")
+    db.add_all([relay_a, relay_b])
+    db.flush()
+    db.add_all([
+        RelayLeg(relayResultId=relay_a.id, legNumber=1, swimmerId=swimmer_a.id, swimmerName=swimmer_a.name),
+        RelayLeg(relayResultId=relay_b.id, legNumber=1, swimmerId=swimmer_b.id, swimmerName=swimmer_b.name),
+    ])
+    db.commit()
+
+    rows = {row["id"]: row for row in list_browser_swimmers(db, limit=100)["data"]}
+
+    assert rows[swimmer_a.id]["latest_meet"]["id"] == meet_a.id
+    assert rows[swimmer_b.id]["latest_meet"]["id"] == meet_b.id
 
 
 def test_browser_meet_returns_event_index_not_full_rows():
@@ -239,6 +299,61 @@ def test_browser_event_includes_relay_rows_and_leg_identity_contract():
     assert row["source"]["source_scope"] == "parent_relay_result"
     assert row["legs"][0]["matched_by"] == "relay_leg_swimmer_id"
     assert row["legs"][0]["identity_match_confidence"] == "high"
+
+
+def test_browser_relay_linked_suspicious_name_is_flagged_instead_of_high_confidence():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    relay = seeded["relay"]
+    suspicious = seeded["suspicious"]
+    db.add(RelayLeg(
+        relayResultId=relay.id,
+        legNumber=3,
+        swimmerId=suspicious.id,
+        swimmerName=suspicious.name,
+        age=suspicious.age,
+    ))
+    db.commit()
+    event_key = make_event_key(seeded["meet"].id, relay.event, relay.sourceEventNumber)
+
+    row = browser_event(db, meet_id=seeded["meet"].id, event_key=event_key)["data"][0]
+    leg = next(leg for leg in row["legs"] if leg["swimmer_id"] == suspicious.id)
+
+    assert leg["identity_match_confidence"] == "needs_review"
+    assert leg["identity_status"] == "needs_review"
+    assert leg["warning_count"] == 1
+    assert row["warning_count"] == 1
+    warning = next(warning for warning in row["warnings"] if warning["type"] == "relay_identity_needs_review")
+    assert warning["message"] == "This relay swimmer name could not be verified."
+    detail_leg = next(
+        leg for leg in browser_swimmer_detail(db, suspicious.id)["relay_history"][0]["legs"]
+        if leg["swimmer_id"] == suspicious.id
+    )
+    assert detail_leg["identity_match_confidence"] == "needs_review"
+
+
+def test_browser_relay_source_name_is_checked_even_when_linked_profile_name_is_clean():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    relay = seeded["relay"]
+    swimmer = seeded["swimmer"]
+    leg = next(leg for leg in relay.legs if leg.swimmerId == swimmer.id)
+    leg.swimmerName = "Corrupt R1:02.53 Name"
+    db.commit()
+    event_key = make_event_key(seeded["meet"].id, relay.event, relay.sourceEventNumber)
+
+    event_row = browser_event(db, meet_id=seeded["meet"].id, event_key=event_key)["data"][0]
+    event_leg = next(item for item in event_row["legs"] if item["swimmer_id"] == swimmer.id)
+    detail_leg = next(
+        item for item in browser_swimmer_detail(db, swimmer.id)["relay_history"][0]["legs"]
+        if item["swimmer_id"] == swimmer.id
+    )
+
+    for projected_leg in (event_leg, detail_leg):
+        assert projected_leg["swimmer_name"] == "Corrupt R1:02.53 Name"
+        assert projected_leg["identity_match_confidence"] == "needs_review"
+        assert projected_leg["identity_status"] == "needs_review"
+        assert projected_leg["warning_count"] == 1
 
 
 def test_browser_relay_warning_uses_plain_athlete_facing_copy():
@@ -435,6 +550,19 @@ def test_browser_data_quality_surfaces_parser_contaminated_names_and_missing_sou
     assert suspicious["source_fields"] == ["Swimmer.name"]
 
 
+def test_suspicious_name_sql_filter_matches_python_projection_and_exposes_warning_count():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+
+    warned = list_browser_swimmers(db, has_warnings=True, limit=100)
+    clean = list_browser_swimmers(db, has_warnings=False, limit=100)
+
+    assert [row["id"] for row in warned["data"]] == [seeded["suspicious"].id]
+    assert warned["data"][0]["warning_count"] == 1
+    assert all(row["warning_count"] == 0 for row in clean["data"])
+    assert warned["pagination"]["total"] + clean["pagination"]["total"] == 3
+
+
 def test_browser_data_quality_counts_and_paginates_beyond_200_warnings():
     db = _test_session()
     db.add_all([
@@ -476,6 +604,144 @@ def test_browser_event_invalid_key_returns_empty_warning_not_fuzzy_match():
     assert payload["event_group"] is None
     assert payload["data"] == []
     assert payload["warnings"][0]["type"] == "event_key_not_found"
+
+
+def test_browser_meets_api_returns_hybrid_grouped_aggregates_in_constant_queries_without_mutation():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    before = _domain_counts(db)
+    statements: list[str] = []
+
+    @event.listens_for(db.get_bind(), "before_cursor_execute")
+    def _count_queries(*args):
+        statements.append(args[2])
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        response = TestClient(main.app).get("/api/browser/meets")
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["pagination"] == {"page": 1, "limit": 50, "total": 1, "total_pages": 1}
+    row = response.json()["data"][0]
+    assert row == {
+        "id": seeded["meet"].id,
+        "name": "56th SNAG Seniors",
+        "date": "2026-03-17",
+        "end_date": None,
+        "location": None,
+        "event_group_count": 4,
+        "individual_result_count": 4,
+        "relay_result_count": 1,
+        "total_rows": 5,
+        "missing_source_count": 1,
+    }
+    assert len(statements) <= 2
+    assert _domain_counts(db) == before
+
+
+def test_browser_meets_api_includes_relay_only_meets():
+    db = _test_session()
+    meet = Meet(name="Relay Only", startDate=datetime(2026, 7, 1), parserFormat="hytek")
+    db.add(meet)
+    db.flush()
+    db.add(RelayResult(
+        meetId=meet.id,
+        event="Mixed 4x50 SC Meter Freestyle Relay",
+        sourceEventNumber="9",
+        teamName="Example Club",
+        relayLetter="A",
+        time="1:50.00",
+        resultStatus="finished",
+    ))
+    db.commit()
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        response = TestClient(main.app).get("/api/browser/meets", params={"q": "relay"})
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    row = response.json()["data"][0]
+    assert row["event_group_count"] == 1
+    assert row["individual_result_count"] == 0
+    assert row["relay_result_count"] == 1
+    assert row["total_rows"] == 1
+    assert row["missing_source_count"] == 1
+
+
+def test_browser_meets_api_filters_orders_and_paginates_with_stable_id_ties():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    tied_date = datetime(2026, 8, 1)
+    zulu = Meet(name="Zulu Invitational", startDate=tied_date, parserFormat="hytek")
+    alpha = Meet(name="Alpha Invitational", startDate=tied_date, parserFormat="hytek")
+    db.add_all([zulu, alpha])
+    db.commit()
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        client = TestClient(main.app)
+        first = client.get(
+            "/api/browser/meets",
+            params={"page": 1, "limit": 1, "sort": "date", "order": "desc"},
+        ).json()
+        second = client.get(
+            "/api/browser/meets",
+            params={"page": 2, "limit": 1, "sort": "date", "order": "desc"},
+        ).json()
+        filtered = client.get(
+            "/api/browser/meets",
+            params={"q": "invitational", "sort": "name", "order": "asc"},
+        ).json()
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert first["pagination"] == {"page": 1, "limit": 1, "total": 3, "total_pages": 3}
+    assert [first["data"][0]["id"], second["data"][0]["id"]] == [zulu.id, alpha.id]
+    assert [row["name"] for row in filtered["data"]] == ["Alpha Invitational", "Zulu Invitational"]
+    assert seeded["meet"].id not in {row["id"] for row in filtered["data"]}
+
+
+def test_browser_meets_event_groups_deduplicate_same_union_tuple():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    relay = RelayResult(
+        meetId=seeded["meet"].id,
+        event="Men 15 & Over 50 LC Meter Freestyle",
+        sourceEventNumber="17",
+        teamName="Example Club",
+        relayLetter="B",
+        time="1:45.00",
+        resultStatus="finished",
+    )
+    db.add(relay)
+    db.commit()
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        row = TestClient(main.app).get("/api/browser/meets").json()["data"][0]
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert row["event_group_count"] == 4
+    assert row["individual_result_count"] == 4
+    assert row["relay_result_count"] == 2
+    assert row["total_rows"] == 6
 
 
 def test_browser_api_routes_smoke_with_real_response_contracts():
@@ -550,6 +816,35 @@ def test_legacy_swimmer_endpoint_excludes_unknown_status_from_personal_bests():
             if item["event"] == "Men 15 & Over 50 LC Meter Freestyle"
         )
         assert personal_best["time"] == "24.51"
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_combined_results_endpoint_filters_row_type_and_rejects_unknown_values():
+    db = _test_session()
+    _seed_browser_fixture(db)
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        client = TestClient(main.app)
+        individuals = client.get("/api/results/all", params={"row_type": "individual"})
+        relays = client.get("/api/results/all", params={"row_type": "relay"})
+        all_rows = client.get("/api/results/all", params={"row_type": "all"})
+        invalid = client.get("/api/results/all", params={"row_type": "unsupported"})
+
+        assert individuals.status_code == 200
+        assert {row["type"] for row in individuals.json()["data"]} == {"individual"}
+        assert individuals.json()["pagination"]["total"] == 4
+        assert relays.status_code == 200
+        assert {row["type"] for row in relays.json()["data"]} == {"relay"}
+        assert relays.json()["pagination"]["total"] == 1
+        assert all_rows.status_code == 200
+        assert {row["type"] for row in all_rows.json()["data"]} == {"individual", "relay"}
+        assert all_rows.json()["pagination"]["total"] == 5
+        assert invalid.status_code == 422
     finally:
         main.app.dependency_overrides.clear()
 

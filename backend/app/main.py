@@ -37,6 +37,7 @@ from .browser import (
     browser_meet,
     browser_overview,
     browser_swimmer_detail,
+    list_browser_meets,
     list_browser_swimmers,
 )
 from .competition_packages import resolve_session_metadata
@@ -64,6 +65,7 @@ from .source_monitoring import (
 from .schemas import (
     CombinedResultItem,
     CombinedResultsResponse,
+    BrowserMeetListResponse,
     ConfidenceCheck,
     DuplicateEntry,
     EventGroup,
@@ -1309,6 +1311,25 @@ def get_browser_overview(db: Session = Depends(get_db)):
     return browser_overview(db)
 
 
+@app.get("/api/browser/meets", response_model=BrowserMeetListResponse)
+def get_browser_meets(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    q: Optional[str] = None,
+    sort: str = Query("date", pattern="^(date|name)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    return list_browser_meets(
+        db,
+        page=page,
+        limit=limit,
+        q=q,
+        sort=sort,
+        order=order,
+    )
+
+
 @app.get("/api/browser/swimmers")
 def get_browser_swimmers(
     page: int = Query(1, ge=1),
@@ -1656,40 +1677,43 @@ def list_all_results(
     meet_id: Optional[int] = None,
     event: Optional[str] = None,
     is_dq: Optional[bool] = None,
+    row_type: str = Query("all", pattern="^(all|individual|relay)$"),
     db: Session = Depends(get_db),
 ):
-    # Individual results
-    q1 = db.query(Result).options(joinedload(Result.swimmer), joinedload(Result.meet))
-    if swimmer:
-        q1 = q1.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
-    if swimmer_id:
-        q1 = q1.filter(Result.swimmerId == swimmer_id)
-    if meet_id:
-        q1 = q1.filter(Result.meetId == meet_id)
-    if event:
-        q1 = q1.filter(Result.event.ilike(f"%{event}%"))
-    if is_dq is not None:
-        q1 = q1.filter(Result.isDQ == is_dq)
-    individual = q1.all()
-
-    # Relay results
-    q2 = db.query(RelayResult).options(
-        joinedload(RelayResult.meet),
-        joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer),
-    )
-    if meet_id:
-        q2 = q2.filter(RelayResult.meetId == meet_id)
-    if event:
-        q2 = q2.filter(RelayResult.event.ilike(f"%{event}%"))
-    if swimmer or swimmer_id:
-        q2 = q2.join(RelayLeg)
+    individual = []
+    if row_type in {"all", "individual"}:
+        q1 = db.query(Result).options(joinedload(Result.swimmer), joinedload(Result.meet))
         if swimmer:
-            q2 = q2.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
+            q1 = q1.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
         if swimmer_id:
-            q2 = q2.filter(RelayLeg.swimmerId == swimmer_id)
-    if is_dq is not None:
-        q2 = q2.filter(RelayResult.isDQ == is_dq)
-    relays = q2.all()
+            q1 = q1.filter(Result.swimmerId == swimmer_id)
+        if meet_id:
+            q1 = q1.filter(Result.meetId == meet_id)
+        if event:
+            q1 = q1.filter(Result.event.ilike(f"%{event}%"))
+        if is_dq is not None:
+            q1 = q1.filter(Result.isDQ == is_dq)
+        individual = q1.all()
+
+    relays = []
+    if row_type in {"all", "relay"}:
+        q2 = db.query(RelayResult).options(
+            joinedload(RelayResult.meet),
+            joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer),
+        )
+        if meet_id:
+            q2 = q2.filter(RelayResult.meetId == meet_id)
+        if event:
+            q2 = q2.filter(RelayResult.event.ilike(f"%{event}%"))
+        if swimmer or swimmer_id:
+            q2 = q2.join(RelayLeg)
+            if swimmer:
+                q2 = q2.join(Swimmer).filter(Swimmer.name.ilike(f"%{swimmer}%"))
+            if swimmer_id:
+                q2 = q2.filter(RelayLeg.swimmerId == swimmer_id)
+        if is_dq is not None:
+            q2 = q2.filter(RelayResult.isDQ == is_dq)
+        relays = q2.all()
 
     # Combine and sort by event name
     combined = [_result_to_combined(r) for r in individual] + [_relay_to_combined(rr) for rr in relays]

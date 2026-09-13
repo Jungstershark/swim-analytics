@@ -340,16 +340,40 @@ Event 117 Mixed 11-12 200 LC Meter Freestyle Relay
 Team Relay Seed Time Finals Time
 1 Example Club A 2:20.00 2:17.00
 1) Ee, Emma W12 2) r:0.35 Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan Royston M11 4) r:0.27 Lim, Le Jin M12
-r:+0.56 35.91 1:11.60 (35.69) 1:43.45 (31.85) 2:17.00 (33.55)"""
+r:+0.56 35.91 1:11.60 (35.69) 1:44.40 (32.80) 2:17.00 (32.60)"""
 
         meet, confidence = parse_hytek_text([page])
         relay = meet.events[0].relay_results[0]
 
         assert relay.leg_parse_status == "partial"
         assert relay.leg_parse_warning
+        assert [leg.leg_number for leg in relay.legs] == [1, 4]
+        assert relay.legs[1].split_time == "32.60"
         assert all(5 <= leg.age <= 100 for leg in relay.legs if leg.age is not None)
         assert all("r:" not in leg.name and not any(char.isdigit() for char in leg.name) for leg in relay.legs)
         assert confidence.checks["relay_leg_integrity"] is True
+        assert confidence.passed is True
+
+    def test_balanced_parenthetical_relay_swimmer_name_is_retained(self):
+        page = """Singapore Short Course Invitational 2026 - 29/8/2026 to 30/8/2026
+Results - Day 2 Session 4
+Event 107 Women 200 SC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 1:50.00 1:47.00
+1) Sun, Youyou (Tianyou) 12 2) r:0.33 Tan, Alice 12 3) r:0.28 Lim, Beth 12 4) r:0.08 Ong, Cara 12
+r:+0.60 25.00 52.00 (27.00) 1:19.00 (27.00) 1:47.00 (28.00)"""
+
+        meet, confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+
+        assert [leg.name for leg in relay.legs] == [
+            "Sun, Youyou (Tianyou)",
+            "Tan, Alice",
+            "Lim, Beth",
+            "Ong, Cara",
+        ]
+        assert relay.leg_parse_status == "complete"
+        assert relay.leg_parse_warning is None
         assert confidence.passed is True
 
     @pytest.mark.parametrize(

@@ -266,6 +266,22 @@ export interface BrowserMeetBrief {
   location: string | null;
 }
 
+export interface BrowserMeetListItem extends BrowserMeetBrief {
+  event_group_count: number;
+  individual_result_count: number;
+  relay_result_count: number;
+  total_rows: number;
+  missing_source_count: number;
+}
+
+export interface BrowserMeetListParams {
+  page?: number;
+  limit?: number;
+  q?: string;
+  sort?: "date" | "name";
+  order?: "asc" | "desc";
+}
+
 export interface BrowserSwimmerBrief {
   id: number;
   name: string;
@@ -478,6 +494,18 @@ export async function getBrowserOverview(): Promise<BrowserOverview> {
   return apiFetch("/browser/overview");
 }
 
+export async function listBrowserMeets(
+  params: BrowserMeetListParams = {}
+): Promise<PaginatedResponse<BrowserMeetListItem>> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.q) q.set("q", params.q);
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
+  return apiFetch(`/browser/meets?${q}`);
+}
+
 export async function listBrowserSwimmers(
   params: BrowserSwimmerListParams = {}
 ): Promise<PaginatedResponse<BrowserSwimmerListItem>> {
@@ -594,6 +622,7 @@ export interface ListResultsParams {
   event?: string;
   team?: string;
   is_dq?: boolean;
+  row_type?: "all" | "individual" | "relay";
   sort?: "time" | "date" | "placement" | "event";
   order?: "asc" | "desc";
 }
@@ -681,6 +710,7 @@ export async function listAllResults(
   if (params.meet_id) q.set("meet_id", String(params.meet_id));
   if (params.event) q.set("event", params.event);
   if (params.is_dq !== undefined) q.set("is_dq", String(params.is_dq));
+  if (params.row_type) q.set("row_type", params.row_type);
   return apiFetch(`/results/all?${q}`);
 }
 

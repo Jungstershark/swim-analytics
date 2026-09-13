@@ -257,6 +257,27 @@ RE_RELAY_LEG = re.compile(
     r"(?:([MW])?(\d{1,2}))(?!\d?\))"   # optional gender marker + age
 )
 
+
+def _relay_leg_name_is_structurally_valid(name: str) -> bool:
+    """Reject PDF overlap artifacts while allowing balanced name suffixes."""
+    stripped = name.strip()
+    if (
+        not stripped
+        or any(char.isdigit() for char in stripped)
+        or "r:" in stripped.lower()
+    ):
+        return False
+
+    parenthesis_depth = 0
+    for char in stripped:
+        if char == "(":
+            parenthesis_depth += 1
+        elif char == ")":
+            parenthesis_depth -= 1
+            if parenthesis_depth < 0:
+                return False
+    return parenthesis_depth == 0
+
 # DQ code line: "SW 7.4c Hands brought back beyond..."
 RE_DQ_CODE = re.compile(r"^(SW\s+[\d.]+[a-z]?)\s+(.+)$")
 
@@ -886,12 +907,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     reason = f"duplicate leg number {leg.leg_number}"
                 elif leg.age is not None and not 5 <= leg.age <= 100:
                     reason = f"implausible age {leg.age}"
-                elif (
-                    not leg.name.strip()
-                    or any(char.isdigit() for char in leg.name)
-                    or ")" in leg.name
-                    or "r:" in leg.name.lower()
-                ):
+                elif not _relay_leg_name_is_structurally_valid(leg.name):
                     reason = "corrupted name structure"
 
                 if reason:
@@ -1060,10 +1076,7 @@ def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int
     checks["relay_leg_integrity"] = all(
         leg.leg_number in {1, 2, 3, 4}
         and (leg.age is None or 5 <= leg.age <= 100)
-        and bool(leg.name.strip())
-        and not any(char.isdigit() for char in leg.name)
-        and ")" not in leg.name
-        and "r:" not in leg.name.lower()
+        and _relay_leg_name_is_structurally_valid(leg.name)
         for ev in meet.events
         for relay in ev.relay_results
         for leg in relay.legs

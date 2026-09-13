@@ -63,12 +63,14 @@ export default function MeetEventPage() {
     <div className="min-h-screen">
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <nav className="flex items-center gap-2 text-sm mb-4">
-            <a href="/" className="text-gray-500 hover:text-ssa-navy transition-colors">Dashboard</a>
+          <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm mb-4">
+            <a href="/" className="shrink-0 text-gray-500 hover:text-ssa-navy transition-colors">Home</a>
             <span className="text-gray-300">/</span>
-            <a href={`/meets/${meetId}`} className="text-gray-500 hover:text-ssa-navy transition-colors">Meet</a>
+            <a href="/meets" className="shrink-0 text-gray-500 hover:text-ssa-navy transition-colors">Meets</a>
             <span className="text-gray-300">/</span>
-            <span className="text-ssa-navy font-medium">Event</span>
+            <a href={`/meets/${meetId}`} className="shrink-0 text-gray-500 hover:text-ssa-navy transition-colors">Meet</a>
+            <span className="text-gray-300">/</span>
+            <span className="truncate text-ssa-navy font-medium" aria-current="page">Event</span>
           </nav>
           <h1 className="text-2xl font-bold text-ssa-navy">
             {loading ? "Loading event..." : detail?.event_group?.event_label || "Event not found"}
@@ -117,7 +119,7 @@ export default function MeetEventPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {detail.data.map((row, index) => <ResultRow key={`${row.row_type}-${row.id}`} row={row} index={index} />)}
+                    {detail.data.map((row, index) => <ResultRow key={`${row.row_type}-${row.id}`} row={row} index={index} meetId={meetId} />)}
                   </tbody>
                 </table>
               </div>
@@ -138,8 +140,9 @@ export default function MeetEventPage() {
   );
 }
 
-function ResultRow({ row, index }: { row: BrowserEventRow; index: number }) {
+function ResultRow({ row, index, meetId }: { row: BrowserEventRow; index: number; meetId: number }) {
   const hasWarnings = row.warnings.length > 0;
+  const resultsHref = `/results?meet_id=${meetId}&event=${encodeURIComponent(row.event_label)}&row_type=${row.row_type}`;
   return (
     <tr className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"} ${hasWarnings ? "bg-amber-50/40" : ""} hover:bg-ssa-teal/5 transition-colors`}>
       <td className="px-4 py-3">
@@ -161,6 +164,7 @@ function ResultRow({ row, index }: { row: BrowserEventRow; index: number }) {
       <td className="px-4 py-3 text-right font-mono font-bold text-ssa-navy">{resultDisplayValue(row.status, row.time, row.is_dq)}</td>
       <td className="px-4 py-3 text-center">
         {row.source.document_sha256 ? <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">source linked</span> : <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded">missing source</span>}
+        <a href={resultsHref} className="mt-2 block min-h-11 text-xs font-semibold leading-[2.75rem] text-ssa-teal hover:text-ssa-navy">Open in Results</a>
       </td>
     </tr>
   );

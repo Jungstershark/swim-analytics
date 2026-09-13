@@ -10,6 +10,8 @@ backend/venv/
 # Next.js
 .next/
 out/
+frontend/test-results/
+frontend/playwright-report/
 
 # Python
 __pycache__/

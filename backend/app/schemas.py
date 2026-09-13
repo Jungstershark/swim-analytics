@@ -85,6 +85,24 @@ class MeetListResponse(BaseModel):
     pagination: PaginationInfo
 
 
+class BrowserMeetListItem(BaseModel):
+    id: int
+    name: str
+    date: Optional[str] = None
+    end_date: Optional[str] = None
+    location: Optional[str] = None
+    event_group_count: int = 0
+    individual_result_count: int = 0
+    relay_result_count: int = 0
+    total_rows: int = 0
+    missing_source_count: int = 0
+
+
+class BrowserMeetListResponse(BaseModel):
+    data: list[BrowserMeetListItem]
+    pagination: PaginationInfo
+
+
 class EventGroup(BaseModel):
     name: str
     results: list["ResultBrief"] = []

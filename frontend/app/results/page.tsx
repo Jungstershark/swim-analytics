@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   listAllResults,
   listMeets,
@@ -16,41 +17,57 @@ import {
 } from "@/lib/api";
 
 export default function ResultsPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto min-h-screen max-w-7xl px-4 py-12 text-sm text-gray-500">Loading results...</div>}>
+      <ResultsContent />
+    </Suspense>
+  );
+}
+
+function ResultsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedRowType = searchParams.get("row_type");
+  const rowType: "all" | "individual" | "relay" = requestedRowType === "individual" || requestedRowType === "relay" ? requestedRowType : "all";
+  const search = searchParams.get("swimmer") ?? "";
+  const eventFilter = searchParams.get("event") ?? "";
+  const requestedMeetId = Number(searchParams.get("meet_id"));
+  const meetId = Number.isInteger(requestedMeetId) && requestedMeetId > 0 ? requestedMeetId : undefined;
+  const showDqOnly = searchParams.get("is_dq") === "true";
+  const requestedPage = Number(searchParams.get("page"));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   // --- State ---
   const [results, setResults] = useState<CombinedResultItem[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  const [splitsCache, setSplitsCache] = useState<Record<number, ResultDetail>>({});
-  const [loadingSplits, setLoadingSplits] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [splitsCache, setSplitsCache] = useState<Record<string, ResultDetail>>({});
+  const [loadingSplitRow, setLoadingSplitRow] = useState<string | null>(null);
 
   async function handleToggleSplits(resultId: number) {
-    if (expandedRow === resultId) {
+    const rowKey = `individual-${resultId}`;
+    if (expandedRow === rowKey) {
       setExpandedRow(null);
       return;
     }
-    setExpandedRow(resultId);
-    if (splitsCache[resultId]) return; // already cached
-    setLoadingSplits(true);
+    setExpandedRow(rowKey);
+    if (splitsCache[rowKey]) return; // already cached
+    setLoadingSplitRow(rowKey);
     try {
       const detail = await getResult(resultId);
-      setSplitsCache((prev) => ({ ...prev, [resultId]: detail }));
+      setSplitsCache((prev) => ({ ...prev, [rowKey]: detail }));
     } catch {
       // leave uncached so it retries on next click
     } finally {
-      setLoadingSplits(false);
+      setLoadingSplitRow((current) => current === rowKey ? null : current);
     }
   }
 
-  // Filters
-  const [search, setSearch] = useState("");
-  const [eventFilter, setEventFilter] = useState("");
-  const [eventSearchInput, setEventSearchInput] = useState("");
+  // Filter input drafts; committed filter values are owned by the URL.
+  const [searchInput, setSearchInput] = useState(search);
+  const [eventSearchInput, setEventSearchInput] = useState(eventFilter);
   const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
-  const [meetId, setMeetId] = useState<number | undefined>();
-  const [showDqOnly, setShowDqOnly] = useState(false);
-  const [page, setPage] = useState(1);
   const limit = 50;
 
   // Meets for dropdown
@@ -61,6 +78,59 @@ export default function ResultsPage() {
 
   // Debounce timer ref
   const debounceRef = useRef<NodeJS.Timeout>();
+  const resultsRequestRef = useRef(0);
+  const observedQuery = searchParams.toString();
+  const urlStateOwnerRef = useRef({
+    params: new URLSearchParams(observedQuery),
+    pendingQuery: null as string | null,
+  });
+
+  const updateUrl = useCallback((updates: Record<string, string | null>, resetPage = true) => {
+    const next = new URLSearchParams(urlStateOwnerRef.current.params.toString());
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    });
+    if (resetPage) next.delete("page");
+    const query = next.toString();
+    const href = query ? `/results?${query}` : "/results";
+    const currentHref = `${window.location.pathname}${window.location.search}`;
+    urlStateOwnerRef.current.params = next;
+    urlStateOwnerRef.current.pendingQuery = href === currentHref ? null : query;
+    if (href !== currentHref) router.push(href);
+  }, [router]);
+
+  useEffect(() => {
+    const owner = urlStateOwnerRef.current;
+    if (owner.pendingQuery === null || owner.pendingQuery === observedQuery) {
+      owner.params = new URLSearchParams(observedQuery);
+      owner.pendingQuery = null;
+    }
+  }, [observedQuery]);
+
+  useEffect(() => {
+    function syncHistoryState() {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = undefined;
+      }
+      const params = new URLSearchParams(window.location.search);
+      urlStateOwnerRef.current.params = params;
+      urlStateOwnerRef.current.pendingQuery = null;
+      setSearchInput(params.get("swimmer") || "");
+    }
+    window.addEventListener("popstate", syncHistoryState);
+    return () => window.removeEventListener("popstate", syncHistoryState);
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearchInput(search);
+  }, [search]);
+
+  useEffect(() => {
+    if (!eventDropdownOpen) setEventSearchInput(eventFilter);
+  }, [eventDropdownOpen, eventFilter]);
 
   // --- Load meets for filter dropdown ---
   useEffect(() => {
@@ -77,38 +147,48 @@ export default function ResultsPage() {
   }, [meetId]);
 
   // --- Fetch results ---
-  const fetchResults = useCallback(async () => {
+  useEffect(() => {
+    const requestId = ++resultsRequestRef.current;
+    let active = true;
     setLoading(true);
     setError("");
-    try {
-      const res = await listAllResults({
+    listAllResults({
         page,
         limit,
         swimmer: search || undefined,
         event: eventFilter || undefined,
         meet_id: meetId,
         is_dq: showDqOnly ? true : undefined,
+        row_type: rowType,
+      })
+      .then((res) => {
+        if (!active || resultsRequestRef.current !== requestId) return;
+        setResults(res.data);
+        setPagination(res.pagination);
+      })
+      .catch((e: any) => {
+        if (!active || resultsRequestRef.current !== requestId) return;
+        setError(e.message || "Failed to load results");
+      })
+      .finally(() => {
+        if (active && resultsRequestRef.current === requestId) setLoading(false);
       });
-      setResults(res.data);
-      setPagination(res.pagination);
-    } catch (e: any) {
-      setError(e.message || "Failed to load results");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, eventFilter, meetId, showDqOnly]);
 
-  // Fetch on filter change
-  useEffect(() => {
-    fetchResults();
-  }, [fetchResults]);
+    return () => {
+      active = false;
+    };
+  }, [page, search, eventFilter, meetId, showDqOnly, rowType]);
+
+  function setRowType(nextRowType: "all" | "individual" | "relay") {
+    updateUrl({ row_type: nextRowType });
+  }
 
   // Debounced search handler
   function handleSearchChange(value: string) {
+    setSearchInput(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setSearch(value);
-      setPage(1);
+      updateUrl({ swimmer: value || null });
     }, 300);
   }
 
@@ -154,9 +234,9 @@ export default function ResultsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Search & Filters */}
         <div className="card p-4 mb-6">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex min-w-0 flex-col gap-3 lg:flex-row">
             {/* Search */}
-            <div className="relative flex-1">
+            <div className="relative min-w-0 flex-1">
               <svg
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
                 fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
@@ -166,16 +246,16 @@ export default function ResultsPage() {
               <input
                 type="text"
                 placeholder="Search by swimmer name..."
-                defaultValue={search}
+                value={searchInput}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm
+                className="min-h-11 w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm
                            focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
                            placeholder:text-gray-400 transition-colors"
               />
             </div>
 
             {/* Event filter — searchable dropdown */}
-            <div className="relative min-w-[300px]">
+            <div className="relative min-w-0 lg:min-w-[300px]">
               <input
                 type="text"
                 placeholder="All Events"
@@ -192,14 +272,16 @@ export default function ResultsPage() {
                   // Delay to allow click on dropdown item
                   setTimeout(() => setEventDropdownOpen(false), 200);
                 }}
-                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
+                className="min-h-11 w-full px-4 pr-12 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
                            focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
                            placeholder:text-gray-400 transition-colors"
               />
               {eventFilter && !eventDropdownOpen && (
                 <button
-                  onClick={() => { setEventFilter(""); setEventSearchInput(""); setPage(1); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                  aria-label="Clear event filter"
+                  onClick={() => { updateUrl({ event: null }); setEventSearchInput(""); }}
+                  className="absolute right-0 top-1/2 flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center text-gray-400 hover:text-gray-600"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -210,8 +292,8 @@ export default function ResultsPage() {
                 <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
                   <button
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setEventFilter(""); setEventSearchInput(""); setPage(1); setEventDropdownOpen(false); }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                    onClick={() => { updateUrl({ event: null }); setEventSearchInput(""); setEventDropdownOpen(false); }}
+                    className="min-h-11 w-full px-4 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
                   >
                     All Events
                   </button>
@@ -221,8 +303,8 @@ export default function ResultsPage() {
                       <button
                         key={evt}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => { setEventFilter(evt); setEventSearchInput(evt); setPage(1); setEventDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-ssa-teal/5 transition-colors ${
+                        onClick={() => { updateUrl({ event: evt }); setEventSearchInput(evt); setEventDropdownOpen(false); }}
+                        className={`min-h-11 w-full px-4 py-2 text-left text-sm hover:bg-ssa-teal/5 transition-colors ${
                           evt === eventFilter ? "text-ssa-teal font-medium bg-ssa-teal/5" : "text-gray-700"
                         }`}
                       >
@@ -235,9 +317,10 @@ export default function ResultsPage() {
 
             {/* Meet filter */}
             <select
+              aria-label="Filter by meet"
               value={meetId ?? ""}
-              onChange={(e) => { setMeetId(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
-              className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
+              onChange={(e) => updateUrl({ meet_id: e.target.value || null })}
+              className="min-h-11 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600
                          focus:outline-none focus:ring-2 focus:ring-ssa-teal/20 focus:border-ssa-teal
                          transition-colors appearance-none cursor-pointer
                          bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]
@@ -251,8 +334,9 @@ export default function ResultsPage() {
 
             {/* DQ toggle */}
             <button
-              onClick={() => { setShowDqOnly(!showDqOnly); setPage(1); }}
-              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap ${
+              type="button"
+              onClick={() => updateUrl({ is_dq: showDqOnly ? null : "true" })}
+              className={`min-h-11 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap ${
                 showDqOnly
                   ? "bg-red-50 border-red-200 text-red-700"
                   : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
@@ -260,6 +344,25 @@ export default function ResultsPage() {
             >
               {showDqOnly ? "DQ Only" : "Show DQ"}
             </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter results by type">
+            {([[
+              "all", "All results"
+            ], [
+              "individual", "Individual results"
+            ], [
+              "relay", "Relay results"
+            ]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={rowType === value}
+                onClick={() => setRowType(value)}
+                className={`min-h-11 rounded-lg border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ssa-teal ${rowType === value ? "border-ssa-navy bg-ssa-navy text-white" : "border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -295,11 +398,9 @@ export default function ResultsPage() {
 
         {/* Error state */}
         {error && (
-          <div className="card p-8 text-center mb-6">
+          <div role="alert" className="card p-8 text-center mb-6">
             <p className="text-red-600 font-medium">{error}</p>
-            <p className="text-gray-400 text-sm mt-1">
-              Make sure the backend is running: <code className="bg-gray-100 px-1 rounded">uvicorn app.main:app --reload</code>
-            </p>
+            <p className="text-gray-500 text-sm mt-1">Refresh the page or adjust the filters to try again.</p>
           </div>
         )}
 
@@ -310,31 +411,31 @@ export default function ResultsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-ssa-navy">
-                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">
                       Event
                     </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">
                       Swimmer
                     </th>
-                    <th className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-16">
+                    <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-16">
                       Age
                     </th>
-                    <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider hidden md:table-cell">
+                    <th scope="col" className="px-6 py-3.5 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider hidden md:table-cell">
                       Club
                     </th>
-                    <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-300 uppercase tracking-wider w-28">
+                    <th scope="col" className="px-6 py-3.5 text-right text-xs font-semibold text-gray-300 uppercase tracking-wider w-28">
                       Time
                     </th>
-                    <th className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-20 hidden lg:table-cell">
+                    <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-20 hidden lg:table-cell">
                       Round
                     </th>
-                    <th className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-20">
+                    <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-20">
                       Place
                     </th>
-                    <th className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-24">
+                    <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-24">
                       Status
                     </th>
-                    <th className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-16">
+                    <th scope="col" className="px-6 py-3.5 text-center text-xs font-semibold text-gray-300 uppercase tracking-wider w-16">
                       Splits
                     </th>
                   </tr>
@@ -356,11 +457,12 @@ export default function ResultsPage() {
                       ))
                     : results.map((result, index) => {
                         const rowKey = `${result.type}-${result.id}`;
-                        const isExpanded = expandedRow === result.id && ((result.type === "individual") || (result.type === "relay"));
+                        const isExpanded = expandedRow === rowKey;
+                        const detailsId = `result-details-${rowKey}`;
                         const statusLabel = resultStatusLabel(result.status, result.is_dq);
 
                         return (
-                          <React.Fragment key={result.id}>
+                          <React.Fragment key={rowKey}>
                             <tr
                               className={`
                                 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}
@@ -371,7 +473,8 @@ export default function ResultsPage() {
                               {/* Event */}
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div>
-                                  <span className="text-sm text-gray-700 font-medium">{result.event}</span>
+                                  <a href={`/results?meet_id=${result.meet.id}&event=${encodeURIComponent(result.event)}&row_type=${result.type}`} className="text-sm font-medium text-gray-700 hover:text-ssa-teal">{result.event}</a>
+                                  <a href={`/meets/${result.meet.id}`} className="mt-1 block text-xs text-gray-400 hover:text-ssa-teal">{result.meet.name}</a>
                                   {result.type === "relay" && result.team_name && (
                                     <div className="text-xs text-gray-400">{result.team_name} {result.relay_letter}</div>
                                   )}
@@ -481,8 +584,12 @@ export default function ResultsPage() {
                               {/* Details toggle */}
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <button
-                                  onClick={() => result.type === "individual" ? handleToggleSplits(result.id) : setExpandedRow(isExpanded ? null : result.id)}
-                                  className="text-ssa-teal hover:text-ssa-navy transition-colors"
+                                  type="button"
+                                  aria-label={result.type === "relay" ? "View relay legs" : "View splits"}
+                                  aria-expanded={isExpanded}
+                                  aria-controls={detailsId}
+                                  onClick={() => result.type === "individual" ? handleToggleSplits(result.id) : setExpandedRow(isExpanded ? null : rowKey)}
+                                  className="inline-flex min-h-11 min-w-11 items-center justify-center text-ssa-teal transition-colors hover:text-ssa-navy"
                                   title={result.type === "relay" ? "View relay legs" : "View splits"}
                                 >
                                   <svg className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -494,16 +601,16 @@ export default function ResultsPage() {
 
                             {/* Expanded details row */}
                             {isExpanded && result.type === "individual" && (
-                              <tr key={`${result.id}-splits`} className="bg-ssa-navy/5">
+                              <tr id={detailsId} className="bg-ssa-navy/5">
                                 <td colSpan={9} className="px-6 py-3">
-                                  {loadingSplits ? (
+                                  {loadingSplitRow === rowKey ? (
                                     <div className="text-xs text-gray-400 animate-pulse">Loading splits...</div>
-                                  ) : splitsCache[result.id]?.splits ? (
+                                  ) : splitsCache[rowKey]?.splits ? (
                                     <div className="flex flex-wrap gap-2 items-center">
                                       <span className="text-xs font-semibold text-ssa-navy uppercase mr-2">Splits:</span>
                                       {(() => {
                                         try {
-                                          const splits: { cumulative: string; split: string | null; distance: number }[] = JSON.parse(splitsCache[result.id].splits!);
+                                          const splits: { cumulative: string; split: string | null; distance: number }[] = JSON.parse(splitsCache[rowKey].splits!);
                                           return splits.map((s, i) => (
                                             <div key={i} className="text-center bg-white rounded px-2 py-1 border border-gray-200">
                                               <div className="text-[10px] text-gray-400">{s.distance}m</div>
@@ -515,10 +622,10 @@ export default function ResultsPage() {
                                           ));
                                         } catch { return null; }
                                       })()}
-                                      {splitsCache[result.id].reaction_time && (
+                                      {splitsCache[rowKey].reaction_time && (
                                         <div className="text-center bg-white rounded px-2 py-1 border border-gray-200 ml-2">
                                           <div className="text-[10px] text-gray-400">RT</div>
-                                          <div className="text-xs font-mono font-semibold text-gray-600">{splitsCache[result.id].reaction_time}</div>
+                                          <div className="text-xs font-mono font-semibold text-gray-600">{splitsCache[rowKey].reaction_time}</div>
                                         </div>
                                       )}
                                     </div>
@@ -529,7 +636,7 @@ export default function ResultsPage() {
                               </tr>
                             )}
                             {isExpanded && result.type === "relay" && result.legs && (
-                              <tr key={`${result.id}-legs`} className="bg-ssa-navy/5">
+                              <tr id={detailsId} className="bg-ssa-navy/5">
                                 <td colSpan={9} className="px-6 py-3">
                                   <div className="flex flex-wrap gap-3">
                                     {[...result.legs].sort((a, b) => a.leg_number - b.leg_number).map((leg) => {
@@ -580,9 +687,10 @@ export default function ResultsPage() {
             </p>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                type="button"
+                onClick={() => updateUrl({ page: String(Math.max(1, page - 1)) }, false)}
                 disabled={page <= 1}
-                className={`px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
+                className={`min-h-11 px-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
                   page <= 1
                     ? "text-gray-400 cursor-not-allowed"
                     : "text-gray-700 hover:bg-gray-50"
@@ -605,9 +713,10 @@ export default function ResultsPage() {
                 }
                 return (
                   <button
+                    type="button"
                     key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    onClick={() => updateUrl({ page: String(pageNum) }, false)}
+                    className={`min-h-11 min-w-11 px-3 py-1.5 text-sm rounded-md transition-colors ${
                       pageNum === page
                         ? "font-medium text-white bg-ssa-navy"
                         : "text-gray-700 bg-white border border-gray-200 hover:bg-gray-50"
@@ -619,9 +728,10 @@ export default function ResultsPage() {
               })}
 
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                type="button"
+                onClick={() => updateUrl({ page: String(Math.min(totalPages, page + 1)) }, false)}
                 disabled={page >= totalPages}
-                className={`px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
+                className={`min-h-11 px-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
                   page >= totalPages
                     ? "text-gray-400 cursor-not-allowed"
                     : "text-gray-700 hover:bg-gray-50"

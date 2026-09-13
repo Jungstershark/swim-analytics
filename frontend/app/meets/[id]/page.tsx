@@ -51,10 +51,12 @@ export default function MeetDetailPage() {
     <div className="min-h-screen">
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <nav className="flex items-center gap-2 text-sm mb-4">
-            <a href="/" className="text-gray-500 hover:text-ssa-navy transition-colors">Dashboard</a>
+          <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm mb-4">
+            <a href="/" className="shrink-0 text-gray-500 hover:text-ssa-navy transition-colors">Home</a>
             <span className="text-gray-300">/</span>
-            <span className="text-ssa-navy font-medium">{meet.meet.name}</span>
+            <a href="/meets" className="shrink-0 text-gray-500 hover:text-ssa-navy transition-colors">Meets</a>
+            <span className="text-gray-300">/</span>
+            <span className="truncate text-ssa-navy font-medium" aria-current="page">{meet.meet.name}</span>
           </nav>
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
             <div>
@@ -63,9 +65,7 @@ export default function MeetDetailPage() {
                 {meet.meet.date ? formatDate(meet.meet.date) : "Date unknown"}
                 {meet.meet.location ? ` · ${meet.meet.location}` : ""}
               </p>
-              <p className="text-xs text-gray-400 mt-2">
-                Event groups are derived from raw result strings until a normalized MeetEvent/Session model exists.
-              </p>
+
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Metric label="Event groups" value={meet.summary.event_group_count} />
@@ -134,8 +134,7 @@ function EventCard({ meetId, event }: { meetId: number; event: BrowserEventGroup
           </div>
           <div className="flex flex-wrap gap-2 mt-2">
             {event.rounds.map((round) => <span key={round} className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{round}</span>)}
-            {event.swim_dates.map((date) => <span key={date} className="text-xs text-gray-400">{date}</span>)}
-            <span className="text-xs text-gray-400">derived · {event.normalization_status}</span>
+            {event.swim_dates.map((date) => <span key={date} className="text-xs text-gray-500">{date}</span>)}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center lg:min-w-[260px]">
