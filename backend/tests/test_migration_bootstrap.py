@@ -44,7 +44,11 @@ def test_empty_database_upgrades_to_competition_schema(tmp_path: Path):
         "CompetitionSession",
     } <= tables
     result_columns = {column["name"] for column in schema.get_columns("Result")}
-    assert {"sessionId", "resultStatus"} <= result_columns
+    assert {"sessionId", "resultStatus", "isExhibition"} <= result_columns
+    result_column_metadata = {
+        column["name"]: column for column in schema.get_columns("Result")
+    }
+    assert result_column_metadata["isExhibition"]["nullable"] is False
     relay_columns = {column["name"] for column in schema.get_columns("RelayResult")}
     assert {"sessionId", "legParseStatus", "legParseWarning", "resultStatus"} <= relay_columns
     assert "RelayResult_leg_parse_status_ck" in {
@@ -108,3 +112,56 @@ def test_status_migration_backfills_legacy_rows_and_enforces_vocabulary(tmp_path
         ]
         with pytest.raises(IntegrityError):
             connection.execute(text('UPDATE "Result" SET "resultStatus" = \'bogus\' WHERE id = 1'))
+
+
+def test_individual_exhibition_migration_backfills_and_downgrades(tmp_path: Path):
+    database_path = tmp_path / "pre-exhibition.db"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{database_path}"
+
+    def alembic(*args: str) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "backend/alembic.ini", *args],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    alembic("upgrade", "f6a7b8c9d0e1")
+    engine = create_engine(env["DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(text('INSERT INTO "Swimmer" (name) VALUES (\'Legacy Athlete\')'))
+        connection.execute(text('INSERT INTO "Meet" (name, date) VALUES (\'Legacy Meet\', \'2026-01-01\')'))
+        connection.execute(text(
+            'INSERT INTO "Result" '
+            '("swimmerId", "meetId", event, time, "isDQ", "resultStatus") '
+            "VALUES (1, 1, '50 Freestyle', '24.00', 0, 'finished')"
+        ))
+
+    alembic("upgrade", "head")
+    schema = inspect(engine)
+    column = next(
+        item for item in schema.get_columns("Result") if item["name"] == "isExhibition"
+    )
+    assert column["nullable"] is False
+    with engine.begin() as connection:
+        assert connection.execute(
+            text('SELECT "isExhibition" FROM "Result" WHERE id = 1')
+        ).scalar_one() in {False, 0}
+        connection.execute(text(
+            'INSERT INTO "Result" '
+            '("swimmerId", "meetId", event, time, "isDQ", "resultStatus") '
+            "VALUES (1, 1, '100 Freestyle', '53.00', 0, 'finished')"
+        ))
+        assert connection.execute(
+            text('SELECT "isExhibition" FROM "Result" WHERE id = 2')
+        ).scalar_one() in {False, 0}
+
+    alembic("downgrade", "f6a7b8c9d0e1")
+    assert "isExhibition" not in {
+        item["name"] for item in inspect(engine).get_columns("Result")
+    }

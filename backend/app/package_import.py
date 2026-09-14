@@ -24,6 +24,12 @@ from .ingestion import (
 )
 from .main import _process_parsed_meet
 from .models import Meet
+from .package_curation import (
+    PackageCurationPolicy,
+    PackageCurationReport,
+    apply_package_curation,
+    select_manifest_records,
+)
 from .parsers.base import detect_parser
 from .parsers.hytek import ConfidenceReport, ParsedMeet
 from .source_monitoring import canonicalize_url
@@ -41,12 +47,14 @@ class ParsedCompetitionDocument:
     confidence_score: float
     confidence_passed: bool = True
     unmatched_lines_count: int = 0
+    curation_policy_id: str | None = None
 
 
 @dataclass(frozen=True)
 class ParsedCompetitionManifest:
     source_key: str
     documents: tuple[ParsedCompetitionDocument, ...]
+    curation_report: PackageCurationReport | None = None
 
 
 @dataclass(frozen=True)
@@ -102,8 +110,9 @@ def parse_competition_manifest(
     package_root: Path | None = None,
     path_root: Path | None = None,
     parser: ManifestParser = _default_manifest_parser,
+    curation_policy: PackageCurationPolicy | None = None,
 ) -> ParsedCompetitionManifest:
-    """Hash-verify and parse canonical overall-result files from one manifest."""
+    """Hash-verify, parse, and optionally curate one competition manifest."""
     manifest_path = manifest_path.resolve(strict=True)
     allowed_root = (package_root or manifest_path.parent).resolve(strict=True)
     if not manifest_path.is_relative_to(allowed_root):
@@ -111,11 +120,18 @@ def parse_competition_manifest(
     resolution_root = (path_root or allowed_root).resolve(strict=True)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     source_key = _canonical_source_key(payload.get("source_page"))
+    records = (
+        select_manifest_records(payload, curation_policy)
+        if curation_policy is not None
+        else tuple(
+            record
+            for record in payload.get("files", [])
+            if record.get("category") == "overall_results"
+        )
+    )
 
     documents: list[ParsedCompetitionDocument] = []
-    for record in payload.get("files", []):
-        if record.get("category") != "overall_results":
-            continue
+    for record in records:
         raw_path = record.get("filename_saved") or record.get("saved")
         if not raw_path:
             raise ValueError(f"Overall-result manifest record has no saved path: {record}")
@@ -149,14 +165,23 @@ def parse_competition_manifest(
             unmatched_lines_count=len(confidence.unmatched_lines),
         ))
 
-    return ParsedCompetitionManifest(source_key=source_key, documents=tuple(documents))
+    curation_report = None
+    parsed_documents: tuple[ParsedCompetitionDocument, ...] = tuple(documents)
+    if curation_policy is not None:
+        curated, curation_report = apply_package_curation(parsed_documents, curation_policy)
+        parsed_documents = tuple(curated)
+    return ParsedCompetitionManifest(
+        source_key=source_key,
+        documents=parsed_documents,
+        curation_report=curation_report,
+    )
 
 
 def _preflight_documents(documents: Sequence[ParsedCompetitionDocument]) -> None:
     if not documents:
         raise ValueError("Competition package contains no result documents")
 
-    session_hashes: dict[tuple[str, int, int], str] = {}
+    session_hashes: dict[tuple[str, int, int], tuple[str, str | None]] = {}
     for document in documents:
         actual_sha = hashlib.sha256(document.content).hexdigest()
         if actual_sha != document.sha256:
@@ -184,13 +209,18 @@ def _preflight_documents(documents: Sequence[ParsedCompetitionDocument]) -> None
             raise ValueError(f"Conflicting session date in {document.filename}: {'; '.join(resolution.diagnostics)}")
 
         session_key = (parsed.meet_name, parsed.day_number, parsed.session_number)
-        previous_sha = session_hashes.get(session_key)
-        if previous_sha is not None and previous_sha != document.sha256:
+        previous = session_hashes.get(session_key)
+        same_explicit_policy = (
+            previous is not None
+            and previous[1] is not None
+            and previous[1] == document.curation_policy_id
+        )
+        if previous is not None and previous[0] != document.sha256 and not same_explicit_policy:
             raise ValueError(
                 f"Multiple result documents claim {parsed.meet_name} "
                 f"Day {parsed.day_number} Session {parsed.session_number}"
             )
-        session_hashes[session_key] = document.sha256
+        session_hashes[session_key] = (document.sha256, document.curation_policy_id)
 
 
 def import_parsed_competition_documents(

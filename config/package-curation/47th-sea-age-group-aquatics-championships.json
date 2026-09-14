@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "package_id": "47th-sea-age-group-aquatics-championships",
+  "source_page": "https://www.sgaquatics.org.sg/47th-sea-age-group-aquatics-championships/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "47th-sea-age-swimming-results-day-1.pdf",
+      "sha256": "a40b53dc117fea00293d85d304da2619f7c48b1d4423abd105a9edf5002e292e",
+      "category": "overall_results"
+    },
+    {
+      "filename": "47th-sea-age-swimming-results-day-2.pdf",
+      "sha256": "52980fa45d25d6bcacfe825b5e8ba0db8be2b61afe476c347a6c3e801e4d04b5",
+      "category": "overall_results"
+    },
+    {
+      "filename": "47th-sea-age-swimming-results-day-3-30-June-2025.pdf",
+      "sha256": "af45fd8007d9c2ec788003256ccfe7803a536a4e579b17f81bfccbdbcf06b7fe",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [],
+  "expected": {
+    "documents": 3,
+    "individual_results": 1410,
+    "relay_results": 48
+  }
+}

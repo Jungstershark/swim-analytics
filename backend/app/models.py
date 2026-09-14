@@ -519,6 +519,9 @@ class Result(Base):
     dqCode: Mapped[str | None] = mapped_column(String, nullable=True)
     dqDescription: Mapped[str | None] = mapped_column(String, nullable=True)
     isGuest: Mapped[bool] = mapped_column(Boolean, default=False)
+    isExhibition: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     qualifier: Mapped[str | None] = mapped_column(String, nullable=True)
     reactionTime: Mapped[str | None] = mapped_column(String, nullable=True)
     splits: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON string of split data

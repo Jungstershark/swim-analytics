@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "package_id": "20th-snsc-2025",
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/20th-snsc-2025/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "snsc2025-day-1-heats-results.pdf",
+      "sha256": "aef94a7f91deec288744b7242d83a9258ace3581e7b95a18f302279a78cc8c89",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-1-finals-results.pdf",
+      "sha256": "24b7173ecb9cbfd5921051fc2b889d26b9ac02e30c66b78e1ecbd3c9daf679ca",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-2-heats-results.pdf",
+      "sha256": "c496876ffefdf0e7c2b98d5906a524774d94f5ac47d857c436a483dc045f68e6",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-2-finals-results.pdf",
+      "sha256": "1f7d2334be986d480e3fd0d613e99d38b62ee4e4350c67c13b83b297230740b3",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-3-heats-results.pdf",
+      "sha256": "5222ca62561e48fdee4bb1cc94be58bf3b676b3aad27cd2022c05dfac8a686f5",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-3-finals-results.pdf",
+      "sha256": "05a1a6b6ed083aba6633d2db0a15479bcc7d9372e0e4b972ac2028cfef726ec7",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-4-heats-results.pdf",
+      "sha256": "ad94e5117ac76973afe6c35b857f57666896578c1a3d9a3ffa9570d4560df85a",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snsc2025-day-4-finals-results.pdf",
+      "sha256": "24f7ec5306e32c9957a4dc17e28d867d3a3b14644abc94712f7a68a8a76cb171",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [
+    {
+      "id": "exclude-day1-event-109-carryovers",
+      "source_sha256": "aef94a7f91deec288744b7242d83a9258ace3581e7b95a18f302279a78cc8c89",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "109",
+        "round": "Timed Final"
+      },
+      "expected_matches": 9
+    },
+    {
+      "id": "exclude-day1-event-110-carryovers",
+      "source_sha256": "aef94a7f91deec288744b7242d83a9258ace3581e7b95a18f302279a78cc8c89",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "110",
+        "round": "Timed Final"
+      },
+      "expected_matches": 9
+    },
+    {
+      "id": "exclude-day4-event-407-carryovers",
+      "source_sha256": "ad94e5117ac76973afe6c35b857f57666896578c1a3d9a3ffa9570d4560df85a",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "407",
+        "round": "Timed Final"
+      },
+      "expected_matches": 16
+    },
+    {
+      "id": "exclude-day4-event-408-carryovers",
+      "source_sha256": "ad94e5117ac76973afe6c35b857f57666896578c1a3d9a3ffa9570d4560df85a",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "408",
+        "round": "Timed Final"
+      },
+      "expected_matches": 4
+    }
+  ],
+  "expected": {
+    "documents": 8,
+    "individual_results": 2636,
+    "relay_results": 67
+  }
+}

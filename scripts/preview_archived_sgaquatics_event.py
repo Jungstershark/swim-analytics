@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Preview archived SG Aquatics result PDFs without importing into the DB.
-
-Given a raw-library `manifest.json`, parse only `overall_results` files through
-the backend parser and emit a summary. This is the operator-side equivalent of
-website upload preview: read-only, confidence/count oriented, and safe to run on
-new competition pages before choosing whether to import.
-"""
+"""Preview a policy-curated archived SG Aquatics package without DB writes."""
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import sys
 from pathlib import Path
@@ -16,9 +11,11 @@ from pathlib import Path
 # Allow running from repo root without installing backend as a package.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
+CURATION_DIR = REPO_ROOT / "config" / "package-curation"
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.parsers.base import detect_and_parse, detect_parser  # noqa: E402
+from app.package_curation import load_manifest_curation_policy  # noqa: E402
+from app.package_import import parse_competition_manifest  # noqa: E402
 
 
 def confidence_percent(confidence) -> int:
@@ -31,13 +28,27 @@ def confidence_percent(confidence) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Preview archived SG Aquatics overall result PDFs")
+    parser = argparse.ArgumentParser(
+        description="Hash-verify and preview a curated archived SG Aquatics package"
+    )
     parser.add_argument("manifest", type=Path)
+    parser.add_argument("--curation-policy", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    files = [record for record in manifest.get("files", []) if record.get("category") == "overall_results" and record.get("saved")]
+    manifest_path = args.manifest.resolve(strict=True)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    policy = load_manifest_curation_policy(
+        manifest_path,
+        explicit_path=args.curation_policy,
+        config_dir=CURATION_DIR,
+    )
+    package = parse_competition_manifest(
+        manifest_path,
+        package_root=manifest_path.parent,
+        path_root=REPO_ROOT,
+        curation_policy=policy,
+    )
 
     preview_records = []
     totals = {
@@ -48,60 +59,42 @@ def main() -> int:
         "failed": 0,
     }
 
-    print(f"Manifest: {args.manifest}")
+    print(f"Manifest: {manifest_path}")
     print(f"Source page: {manifest.get('source_page')}")
-    print(f"Overall result files: {len(files)}")
+    print(f"Curation policy: {policy.package_id}")
+    print(f"Canonical result files: {len(package.documents)}")
 
-    for record in files:
-        path = Path(record["saved"])
-        try:
-            detection = detect_parser(path)
-            parsed, confidence, parser_format = detect_and_parse(path)
-            event_count = len(parsed.events)
-            individual_count = sum(len(event.results) for event in parsed.events)
-            relay_count = sum(len(event.relay_results) for event in parsed.events)
-            score = confidence_percent(confidence)
-            status = "ok"
-            error = None
-            parser_version = detection.parser_version
-            detection_confidence = detection.confidence
-            detection_reason = detection.reason
-            totals["files"] += 1
-            totals["events"] += event_count
-            totals["individual_results"] += individual_count
-            totals["relay_results"] += relay_count
-            print(f"OK   {score:3d}% {event_count:4d} events {individual_count:6d} indiv {relay_count:4d} relay {path.name}")
-        except Exception as exc:
-            event_count = individual_count = relay_count = 0
-            score = 0
-            parser_format = None
-            parser_version = None
-            detection_confidence = 0
-            detection_reason = None
-            status = "failed"
-            error = f"{type(exc).__name__}: {exc}"
-            totals["failed"] += 1
-            print(f"FAIL {path.name}: {error}")
-
+    for document in package.documents:
+        parsed = document.parsed
+        event_count = len(parsed.events)
+        individual_count = parsed.total_results
+        relay_count = parsed.total_relay_results
+        score = confidence_percent(document.confidence_score)
+        totals["files"] += 1
+        totals["events"] += event_count
+        totals["individual_results"] += individual_count
+        totals["relay_results"] += relay_count
+        print(
+            f"OK   {score:3d}% {event_count:4d} events "
+            f"{individual_count:6d} indiv {relay_count:4d} relay {document.filename}"
+        )
         preview_records.append({
-            "filename": record.get("filename"),
-            "path": str(path),
-            "sha256": record.get("sha256"),
-            "status": status,
-            "parser_format": parser_format,
-            "parser_version": parser_version,
-            "detection_confidence": detection_confidence,
-            "detection_reason": detection_reason,
+            "filename": document.filename,
+            "sha256": document.sha256,
+            "status": "ok",
+            "parser_format": document.parser_name,
+            "parser_version": document.parser_version,
             "confidence_percent": score,
             "events": event_count,
             "individual_results": individual_count,
             "relay_results": relay_count,
-            "error": error,
+            "error": None,
         })
 
     summary = {
-        "manifest": str(args.manifest),
+        "manifest": str(manifest_path),
         "source_page": manifest.get("source_page"),
+        "curation": asdict(package.curation_report) if package.curation_report else None,
         "totals": totals,
         "files": preview_records,
     }
@@ -111,7 +104,7 @@ def main() -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print("Preview report:", args.output)
-    return 1 if totals["failed"] else 0
+    return 0
 
 
 if __name__ == "__main__":

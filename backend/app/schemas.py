@@ -127,6 +127,7 @@ class ResultBase(BaseModel):
     dq_code: Optional[str] = None
     dq_description: Optional[str] = None
     is_guest: bool = False
+    is_exhibition: bool = False
     qualifier: Optional[str] = None
     round: Optional[str] = None
     swim_date: Optional[datetime] = None
@@ -221,6 +222,7 @@ class CombinedResultItem(BaseModel):
     placement: Optional[int] = None
     is_dq: bool = False
     status: str = "unknown"
+    is_exhibition: bool = False
     round: Optional[str] = None
     swim_date: Optional[datetime] = None
     qualifier: Optional[str] = None
@@ -230,7 +232,6 @@ class CombinedResultItem(BaseModel):
     # Relay fields
     team_name: Optional[str] = None
     relay_letter: Optional[str] = None
-    is_exhibition: bool = False
     legs: list[RelayLegBrief] = []
     # Common
     meet: MeetBrief
@@ -258,6 +259,7 @@ class PreviewResultRow(BaseModel):
     is_dq: bool = False
     status: str = "unknown"
     is_guest: bool = False
+    is_exhibition: bool = False
     qualifier: Optional[str] = None
 
 

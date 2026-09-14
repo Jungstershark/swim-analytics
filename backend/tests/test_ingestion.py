@@ -199,6 +199,58 @@ Preliminaries
     assert result.rawTeamName == "Pacific Swimming Club"
 
 
+def test_legacy_process_persists_individual_exhibition_provenance():
+    db = _test_session()
+    meet = Meet(
+        name="Exhibition Meet",
+        startDate=datetime(2026, 6, 1),
+        parserFormat="hytek",
+    )
+    db.add(meet)
+    db.flush()
+    parsed, _confidence = parse_hytek_text(["""Exhibition Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+--- Example, Athlete 20 Example Club 24.00 X23.50"""])
+
+    first = _process_parsed_meet(parsed, meet, datetime(2026, 6, 1), db)
+    second = _process_parsed_meet(parsed, meet, datetime(2026, 6, 1), db)
+
+    assert first[0] == 1
+    assert second[2] == 1
+    assert db.query(Result).count() == 1
+    assert db.query(Result).one().isExhibition is True
+
+
+def test_individual_content_identity_distinguishes_exhibition_provenance():
+    db = _test_session()
+    meet = Meet(name="Identity Meet", startDate=datetime(2026, 6, 1))
+    db.add(meet)
+    db.flush()
+    normal, _confidence = parse_hytek_text(["""Identity Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""])
+    exhibition = deepcopy(normal)
+    exhibition_result = exhibition.events[0].results[0]
+    exhibition_result.is_exhibition = True
+    exhibition_result.is_guest = True
+    exhibition_result.placement = None
+
+    first = _process_parsed_meet(normal, meet, datetime(2026, 6, 1), db)
+    second = _process_parsed_meet(exhibition, meet, datetime(2026, 6, 1), db)
+    repeated = _process_parsed_meet(exhibition, meet, datetime(2026, 6, 1), db)
+
+    assert first[0] == 1
+    assert second[0] == 1
+    assert repeated[2] == 1
+    results = db.query(Result).order_by(Result.isExhibition).all()
+    assert [result.isExhibition for result in results] == [False, True]
+    assert len({result.contentHash for result in results}) == 2
+
+
 def test_process_parsed_meet_dedupes_equivalent_team_spellings():
     db = _test_session()
     meet = Meet(name="Variant Test", startDate=datetime(2026, 3, 17), parserFormat="hytek")

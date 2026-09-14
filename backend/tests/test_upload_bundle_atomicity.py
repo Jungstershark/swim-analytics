@@ -112,6 +112,21 @@ def _install_same_segment_parser(monkeypatch: pytest.MonkeyPatch, *, reject_repa
     return calls
 
 
+def test_upload_preview_exposes_individual_exhibition_provenance(monkeypatch):
+    parsed = _parsed("Exhibition Meet", date(2026, 6, 1), date(2026, 6, 1))
+    parsed.events[0].results[0].is_exhibition = True
+
+    def fake_detect(_path):
+        return parsed, _confidence(), "hytek"
+
+    monkeypatch.setattr(main, "detect_and_parse", fake_detect)
+    upload = UploadFile(filename="results.pdf", file=io.BytesIO(b"%PDF fixture"))
+
+    response = main.upload_preview(upload)
+
+    assert response.events[0].results[0].is_exhibition is True
+
+
 def test_preview_and_confirm_reject_the_same_mixed_segment_bundle(monkeypatch):
     _install_mixed_parser(monkeypatch)
     with pytest.raises(HTTPException) as preview_error:

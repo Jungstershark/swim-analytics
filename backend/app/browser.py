@@ -775,6 +775,7 @@ def _individual_event_row(r: Result) -> dict[str, Any]:
         "dq_code": r.dqCode,
         "dq_description": r.dqDescription,
         "is_guest": r.isGuest,
+        "is_exhibition": r.isExhibition,
         "qualifier": r.qualifier,
         "splits": parsed_splits(r.splits),
         "swimmer": swimmer_brief(r.swimmer),

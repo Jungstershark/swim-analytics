@@ -786,6 +786,39 @@ def test_browser_api_routes_smoke_with_real_response_contracts():
         main.app.dependency_overrides.clear()
 
 
+def test_browser_individual_rows_expose_exhibition_without_changing_fastest_eligibility():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    exhibition = db.query(Result).filter(Result.time == "24.51").one()
+    exhibition.isExhibition = True
+    db.commit()
+
+    event_key = make_event_key(
+        seeded["meet"].id,
+        "Men 15 & Over 50 LC Meter Freestyle",
+        "17",
+    )
+    event_payload = browser_event(
+        db,
+        meet_id=seeded["meet"].id,
+        event_key=event_key,
+    )
+    swimmer_payload = browser_swimmer_detail(db, seeded["swimmer"].id)
+
+    assert event_payload is not None
+    event_row = next(row for row in event_payload["data"] if row["id"] == exhibition.id)
+    assert event_row["is_exhibition"] is True
+    assert swimmer_payload is not None
+    freestyle = next(
+        event
+        for course in swimmer_payload["course_history"]
+        for event in course["events"]
+        if event["event"] == "50 Freestyle" and course["course"] == "LCM"
+    )
+    assert freestyle["fastest_recorded"]["id"] == exhibition.id
+    assert freestyle["fastest_recorded"]["is_exhibition"] is True
+
+
 def test_legacy_swimmer_endpoint_excludes_unknown_status_from_personal_bests():
     db = _test_session()
     seeded = _seed_browser_fixture(db)
@@ -818,6 +851,40 @@ def test_legacy_swimmer_endpoint_excludes_unknown_status_from_personal_bests():
         assert personal_best["time"] == "24.51"
     finally:
         main.app.dependency_overrides.clear()
+
+
+def test_individual_api_contracts_expose_exhibition_provenance():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    exhibition = db.query(Result).filter(Result.time == "24.51").one()
+    exhibition.isExhibition = True
+    db.commit()
+
+    def _override_db():
+        yield db
+
+    main.app.dependency_overrides[main.get_db] = _override_db
+    try:
+        client = TestClient(main.app)
+        listed = client.get("/api/results").json()["data"]
+        detailed = client.get(f"/api/results/{exhibition.id}").json()
+        meet = client.get(f"/api/meets/{seeded['meet'].id}").json()
+        combined = client.get(
+            "/api/results/all", params={"row_type": "individual"}
+        ).json()["data"]
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert next(row for row in listed if row["id"] == exhibition.id)["is_exhibition"] is True
+    assert detailed["is_exhibition"] is True
+    meet_row = next(
+        row
+        for event in meet["events"]
+        for row in event["results"]
+        if row["id"] == exhibition.id
+    )
+    assert meet_row["is_exhibition"] is True
+    assert next(row for row in combined if row["id"] == exhibition.id)["is_exhibition"] is True
 
 
 def test_combined_results_endpoint_filters_row_type_and_rejects_unknown_values():

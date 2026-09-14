@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "package_id": "singapore-swim-series-2026",
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/singapore-swim-series-2026/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "jan-swim-series-2026-results-day-1-session-1.pdf",
+      "sha256": "ea99958aa31840c8fea3ae8e14acc5384c70fdd4bdd238ac8ada010f2a4cbba0",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2026-results-day-2-session-2.pdf",
+      "sha256": "c29b0b26c550e8b80491b21e1dde40b540d177333f164def8f1f6a91451dc650",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2026-results-day-2-session-3.pdf",
+      "sha256": "b74881d488068cec5cd9ed14b0ded0116da594a40c4372be1e8a6592ae9d09af",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2026-results-day-3-session-4.pdf",
+      "sha256": "57765a9750c05efc66d52080b786e3eae9e3f4066493624f62e33238970dd373",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2026-results-day-3-session-5.pdf",
+      "sha256": "eea117fe992d1699ab137db66a16cf2a66caaec042d93d94acb47349deee1cfd",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day1s1.pdf",
+      "sha256": "c5f18b6a3e29630d234d387dd9bc9793f7677208d789df7a901d4697201d8681",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day1s2.pdf",
+      "sha256": "9c27288fc35e5e249ad9411e7462d23c126b88dd76048ba098045579cbe8cfb0",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day-2-a-finals.pdf",
+      "sha256": "c8a483bfda35f1b7453f497e6deda7b6c9912690ccc54573d0af613eb9b20fd3",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day-2-s3.pdf",
+      "sha256": "8d4e77041cb435530d72f939c80afd1a2a1da7d440a995e7dab51a8bee81de8c",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day-3-a-finals-1.pdf",
+      "sha256": "d935c6da00ed0d19141d999ad830e74b6741b33d24545dd6b45c5b3bb9c127b2",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day-3-s4.pdf",
+      "sha256": "51de94e9d61ad3568e8aa041b44b76cf496a35c85e87679f08846456c6a6e9c5",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2026-results-day-3-s5.pdf",
+      "sha256": "690851428da9db35c8785985f7e3336b1c90a8b0b9e2bf185834d83de2f9dd33",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [],
+  "expected": {
+    "documents": 12,
+    "individual_results": 9204,
+    "relay_results": 0
+  }
+}

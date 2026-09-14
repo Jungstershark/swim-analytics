@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "package_id": "singapore-short-course-invitational-2026",
+  "source_page": "https://www.sgaquatics.org.sg/ssci26/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "day-1-session-1-full-results.pdf",
+      "sha256": "1bb2ea60a3009ae16b3b3586ccef1fa130fab6ef4d8b4aeee8c26921a43bee27",
+      "category": "overall_results"
+    },
+    {
+      "filename": "day-1-session-2-full-results.pdf",
+      "sha256": "1c680c88857e6a85e8692f189647bad4676b9daa653109a3cdf896d235bd86cb",
+      "category": "overall_results"
+    },
+    {
+      "filename": "day-2-session-3-full-results.pdf",
+      "sha256": "e41d9c8bf33f3282e06c0574f7f04841b59bf87da7b015db9661f35ba77d5de2",
+      "category": "overall_results"
+    },
+    {
+      "filename": "day-2-session-4-full-results.pdf",
+      "sha256": "424cba2af542e41b0c9304cba27e0954e9eae70971aef4711ffefb915cdbaf5d",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [],
+  "expected": {
+    "documents": 4,
+    "individual_results": 1419,
+    "relay_results": 42
+  }
+}

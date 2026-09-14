@@ -11,9 +11,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
+CURATION_DIR = REPO_ROOT / "config" / "package-curation"
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.database import SessionLocal  # noqa: E402
+from app.package_curation import load_manifest_curation_policy  # noqa: E402
 from app.package_import import (  # noqa: E402
     import_parsed_competition_documents,
     parse_competition_manifest,
@@ -26,6 +28,7 @@ def main() -> int:
     )
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--title", required=True, help="Authoritative umbrella competition title")
+    parser.add_argument("--curation-policy", type=Path, default=None)
     parser.add_argument(
         "--archive-root",
         type=Path,
@@ -35,10 +38,16 @@ def main() -> int:
     args = parser.parse_args()
 
     manifest_path = args.manifest.resolve(strict=True)
+    policy = load_manifest_curation_policy(
+        manifest_path,
+        explicit_path=args.curation_policy,
+        config_dir=CURATION_DIR,
+    )
     package = parse_competition_manifest(
         manifest_path,
         package_root=manifest_path.parent,
         path_root=REPO_ROOT,
+        curation_policy=policy,
     )
     db = SessionLocal()
     try:

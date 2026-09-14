@@ -12,6 +12,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -48,8 +49,10 @@ class ParsedResult:
     is_ns: bool                    # No Show
     qualifier: Optional[str]       # "qMTS", "MTS", or None
     reaction_time: Optional[str]   # e.g. "+0.66"
+    is_exhibition: bool = False    # Valid times prefixed with X
     splits: list[Split] = field(default_factory=list)
     status: str = "unknown"        # finished, dq, ns, dns, dnf, scratched, unknown
+    raw_outcome: Optional[str] = None  # exact HY-TEK time/status token
 
 
 @dataclass
@@ -103,6 +106,8 @@ class ParsedRelayResult:
     leg_parse_status: str = "complete"
     leg_parse_warning: Optional[str] = None
     status: str = "unknown"        # finished, dq, ns, dns, dnf, scratched, unknown
+    is_judge_decision: bool = False  # Times prefixed with J
+    raw_outcome: Optional[str] = None  # exact HY-TEK time/status token
 
 
 @dataclass
@@ -140,10 +145,14 @@ class ParsedMeet:
 # Regex patterns
 # ---------------------------------------------------------------------------
 
-# Page header: "56th SNAG Seniors - 17/3/2026 to 22/3/2026"
-# Single-day meets: "SAQ Emerging Talents Championships 2026 - 31/5/2026"
+# Page header examples:
+#   "56th SNAG Seniors - 17/3/2026 to 22/3/2026"
+#   "11th SNSC SCM 2025 - 07-Nov-25 to 09-Nov-25"
+#   "47th SEA Age 2025 - 6/25/2025 to 6/27/2025"
+_DATE_TOKEN = r"(?:\d{1,2}/\d{1,2}/\d{4}|\d{1,2}-[A-Za-z]{3}-\d{2})"
 RE_MEET_HEADER = re.compile(
-    r"^(.+?)\s*-\s*(\d{1,2}/\d{1,2}/\d{4}(?:\s+to\s+\d{1,2}/\d{1,2}/\d{4})?)$"
+    rf"^(.+?)\s*-\s*({_DATE_TOKEN}(?:\s+to\s+{_DATE_TOKEN})?)$",
+    re.IGNORECASE,
 )
 
 # Session line: "Results - Day 1 Session 1". Bare "Results" is valid but
@@ -155,8 +164,27 @@ RE_SESSION = re.compile(
 RE_BARE_RESULTS = re.compile(r"^Results\s*$", re.IGNORECASE)
 
 
+def _parse_meet_date(raw_value: str) -> date | None:
+    """Parse supported source formats, preferring day-first slash dates."""
+    if re.fullmatch(r"\d{1,2}-[A-Za-z]{3}-\d{2}", raw_value):
+        try:
+            return datetime.strptime(raw_value, "%d-%b-%y").date()
+        except ValueError:
+            return None
+
+    # Existing slash dates are day-first. Fall back to US month-first only when
+    # day-first is impossible (for example 6/25/2025), making the choice
+    # unambiguous rather than silently reinterpreting 5/6/2025.
+    for date_format in ("%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(raw_value, date_format).date()
+        except ValueError:
+            pass
+    return None
+
+
 def parse_meet_date_range(raw_value: str) -> tuple[date | None, date | None]:
-    """Parse a HY-TEK day-first date or inclusive date range.
+    """Parse a supported HY-TEK date or inclusive date range.
 
     Invalid calendar values remain unresolved instead of being replaced with a
     current timestamp.
@@ -164,29 +192,30 @@ def parse_meet_date_range(raw_value: str) -> tuple[date | None, date | None]:
     parts = [part.strip() for part in raw_value.split(" to ")]
     if len(parts) not in {1, 2}:
         return None, None
-    try:
-        start = datetime.strptime(parts[0], "%d/%m/%Y").date()
-        end = datetime.strptime(parts[-1], "%d/%m/%Y").date()
-    except ValueError:
-        return None, None
-    if end < start:
+    start = _parse_meet_date(parts[0])
+    end = _parse_meet_date(parts[-1])
+    if start is None or end is None or end < start:
         return None, None
     return start, end
 
-# Event header: "Event 101 Boys 13-14 200 LC Meter IM"
+# Event header: "Event 101F Men 13 & Over 100 LC Meter Breaststroke"
+# Preserve the optional source suffix; it identifies separate finals events.
 RE_EVENT_HEADER = re.compile(
-    r"^Event\s+(\d+)\s+(.+)$"
+    r"^Event\s+([0-9]+[A-Za-z]?)\s+(.+)$"
 )
 
 # Continuation header: "Preliminaries ... (Event 101 Boys 13-14 200 LC Meter IM)"
-# or just "(Event 106 Girls 13-14 1500 LC Meter Freestyle)"
+# or just "(Event 101F Men 13 & Over 100 LC Meter Breaststroke)"
 RE_EVENT_CONTINUATION = re.compile(
-    r"(?:Preliminaries\s*\.\.\.\s*)?\(Event\s+(\d+)\s+(.+?)\)"
+    r"(?:Preliminaries\s*\.\.\.\s*)?\(Event\s+([0-9]+[A-Za-z]?)\s+(.+?)\)"
 )
 
-# Time standard line: "2:47.17 13-14 MTS MTS"
+# Time standard lines have a real time and repeat the standard label. Requiring
+# both prevents a placement-led first result ending in MTS from being consumed.
 RE_TIME_STANDARD = re.compile(
-    r"^(\d+:[\d.]+|[\d.]+)\s+.+MTS"
+    r"^((?:\d+:)?\d{2}\.\d{2})\s+"
+    r"(?:(?:\d{1,2}-\d{1,2}|\d{1,2}\s*&\s*Over)\s+)?"
+    r"MTS\s+(?:MTS|Minimum\s+TimeStandard)\s*$"
 )
 
 # Column header variants:
@@ -218,9 +247,28 @@ RE_RESULT_LINE = re.compile(
     r"(\d{1,2})\s+"           # age
     r"(.+?)\s+"               # team
     r"([\d:]+\.[\d]+|NT)\s+"  # seed time or NT
-    r"(X?[\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)" # finals time/status; X marks exhibition
+    r"(X?[\d:]+\.[\d]+|XDQ|DQ|NS|DNF|DNS|SCR)" # finals time/status; X marks exhibition
     r"(?:\s+(qMTS|MTS))?"     # optional qualifier
 )
+
+# One immutable HY-TEK source has a confirmed unknown observation rendered with
+# only one terminal NT token.  The same shape elsewhere can mean a missing
+# outcome, so acceptance is intentionally bound to the corroborated meet/event
+# and exact source row rather than widening the normal result grammar.
+RE_LEADING_UNKNOWN_NT_RESULT = re.compile(
+    r"^---\s+"
+    r"(\*.+?)\s+"              # source-marked guest name
+    r"(\d{1,2})\s+"            # age
+    r"(.+?)\s+"                # team
+    r"NT\s*$"
+)
+_EXPLICIT_UNKNOWN_NT_SOURCE_ROWS = {
+    (
+        "21st SNSC 2026",
+        "108",
+        "--- *Yu, Chengyou 17 Nexus International School NT",
+    ),
+}
 
 # Split line: "r:+0.66 29.54 1:05.33 (35.79) 1:45.88 (40.55) 2:18.62 (32.74)"
 # Or without reaction time: "30.63 1:12.33 (41.70) 1:53.80 (41.47) DQ (36.94)"
@@ -242,7 +290,7 @@ RE_RELAY_RESULT = re.compile(
     r"(.+?)\s+"                        # team name
     r"([A-Z])\s+"                      # relay letter
     r"([\d:]+\.[\d]+|NT)\s+"           # seed time
-    r"(X?[\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)"  # time (X prefix = exhibition)
+    r"((?:J|X)?[\d:]+\.[\d]+|DQ|NS|DNF|DNS|SCR)"  # J = judge decision; X = exhibition
 )
 
 # Relay leg line: "1) *Uhle, Ella 17 2) r:0.07 *Thai, Kayla 17 ..."
@@ -411,6 +459,7 @@ def time_to_seconds(time_str: str) -> Optional[float]:
 
 
 RESULT_STATUS_MAP = {
+    "XDQ": "dq",
     "DQ": "dq",
     "NS": "ns",
     "DNS": "dns",
@@ -426,7 +475,8 @@ def normalize_result_status(source_value: str | None) -> str:
     normalized = source_value.strip().upper()
     if normalized in RESULT_STATUS_MAP:
         return RESULT_STATUS_MAP[normalized]
-    return "finished" if time_to_seconds(normalized.removeprefix("X")) is not None else "unknown"
+    normalized_time = normalized.removeprefix("X").removeprefix("J")
+    return "finished" if time_to_seconds(normalized_time) is not None else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +593,52 @@ def _is_dq_code_line(line: str) -> bool:
     return bool(RE_DQ_CODE.match(line.strip()))
 
 
+_PRIVATE_USE_ASCII_TRANSLATION = str.maketrans(
+    {codepoint: codepoint - 0xF000 for codepoint in range(0xF000, 0xF100)}
+)
+
+
+def _normalize_extracted_text(value: str) -> str:
+    """Undo PDFs that map byte values into the U+F000 private-use block."""
+    return value.translate(_PRIVATE_USE_ASCII_TRANSLATION)
+
+
+def _normalize_private_use_hytek_signature(value: str) -> str:
+    """Normalize PUA bytes only when they decode to an explicit HY-TEK header."""
+    if not any("\uf000" <= char <= "\uf0ff" for char in value):
+        return value
+    normalized = _normalize_extracted_text(value)
+    if "HY-TEK" in normalized and "MEET MANAGER" in normalized:
+        return normalized
+    return value
+
+
+def _install_pdfplumber_hytek_signature_normalizer() -> None:
+    """Make the registry's first-page sniff see private-use HY-TEK headers.
+
+    Format detection lives in the parser registry and calls pdfplumber directly.
+    Keep this adapter fail-closed: only text that deterministically decodes to
+    both HY-TEK header markers is changed; unrelated private-use PDFs are left
+    byte-for-byte as extracted.
+    """
+    extract_text = pdfplumber.page.Page.extract_text
+    if getattr(extract_text, "_hytek_signature_normalizer", False):
+        return
+
+    @wraps(extract_text)
+    def normalized_extract_text(page, *args, **kwargs):
+        value = extract_text(page, *args, **kwargs)
+        if not value:
+            return value
+        return _normalize_private_use_hytek_signature(value)
+
+    normalized_extract_text._hytek_signature_normalizer = True
+    pdfplumber.page.Page.extract_text = normalized_extract_text
+
+
+_install_pdfplumber_hytek_signature_normalizer()
+
+
 def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceReport]:
     """
     Parse extracted page texts into a ParsedMeet.
@@ -579,6 +675,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
         if not page_text:
             continue
 
+        page_text = _normalize_extracted_text(page_text)
         lines = page_text.split("\n")
 
         for i, raw_line in enumerate(lines):
@@ -765,14 +862,16 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     relay_letter = m.group(3)
                     seed_raw = m.group(4).strip()
                     time_raw = m.group(5).strip()
+                    raw_outcome = time_raw
 
                     placement = None
                     if placement_str != "---":
                         placement = int(placement_str.lstrip("*"))
 
+                    is_judge_decision = time_raw.startswith("J")
                     is_exhibition = time_raw.startswith("X")
-                    if is_exhibition:
-                        time_raw = time_raw[1:]  # strip X prefix
+                    if is_judge_decision or is_exhibition:
+                        time_raw = time_raw[1:]  # strip the source marker
 
                     is_dq = time_raw == "DQ"
                     is_ns = time_raw in ("NS", "DNS", "DNF", "SCR")
@@ -789,6 +888,8 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                         is_dq=is_dq,
                         is_exhibition=is_exhibition,
                         status=normalize_result_status(time_raw),
+                        is_judge_decision=is_judge_decision,
+                        raw_outcome=raw_outcome,
                     )
                     current_event.relay_results.append(current_relay)
                     continue
@@ -827,6 +928,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                 team = m.group(4).strip()
                 seed_time = m.group(5).strip()
                 finals_raw = m.group(6).strip()
+                raw_outcome = finals_raw
                 qualifier = m.group(7)
 
                 # Placement
@@ -843,7 +945,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                 # HY-TEK uses either a leading * on the name or X on the result
                 # time for guest/exhibition swims. The relational model preserves
                 # both through its existing isGuest field.
-                is_exhibition = finals_raw.startswith("X")
+                is_exhibition = bool(re.fullmatch(r"X[\d:]+\.[\d]+", finals_raw))
                 is_guest = name_raw.startswith("*") or is_exhibition
                 name = name_raw.lstrip("*").strip()
 
@@ -860,7 +962,7 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     seed_time_val = seed_time
 
                 # Status flags
-                is_dq = finals_raw == "DQ"
+                is_dq = finals_raw in {"DQ", "XDQ"}
                 is_ns = finals_raw in ("NS", "DNS", "DNF", "SCR")
                 finals_time = None if (is_dq or is_ns) else finals_raw
 
@@ -880,8 +982,49 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                     is_ns=is_ns,
                     qualifier=qualifier,
                     reaction_time=None,
+                    is_exhibition=is_exhibition,
                     splits=[],
                     status=normalize_result_status(finals_raw),
+                    raw_outcome=raw_outcome,
+                )
+                current_event.results.append(current_result)
+                continue
+
+            # A narrow HY-TEK unknown-outcome form.  It is only safe before any
+            # parsed row in the event and when immutable source evidence has
+            # established the exact row; all other one-token rows stay quarantined.
+            m = RE_LEADING_UNKNOWN_NT_RESULT.match(line)
+            source_identity = (
+                meet_name,
+                current_event.event_number if current_event else None,
+                line,
+            )
+            if (
+                m
+                and current_event
+                and current_result is None
+                and source_identity in _EXPLICIT_UNKNOWN_NT_SOURCE_ROWS
+            ):
+                name_raw = m.group(1).strip()
+                current_result = ParsedResult(
+                    placement=None,
+                    is_tied=False,
+                    name=name_raw.lstrip("*").strip(),
+                    is_guest=True,
+                    age=int(m.group(2)),
+                    team=m.group(3).strip(),
+                    seed_time=None,
+                    finals_time=None,
+                    time_type=current_event.time_type,
+                    is_dq=False,
+                    dq_code=None,
+                    dq_description=None,
+                    is_ns=False,
+                    qualifier=None,
+                    reaction_time=None,
+                    splits=[],
+                    status="unknown",
+                    raw_outcome="NT",
                 )
                 current_event.results.append(current_result)
                 continue
@@ -1103,6 +1246,181 @@ def compute_confidence(meet: ParsedMeet, total_lines: int, classified_lines: int
 # High-level: parse a PDF file
 # ---------------------------------------------------------------------------
 
+_NO_AGE_COLUMN_HEADER = re.compile(
+    r"^\s*Name\s+Team\s+(?:Seed|Prelim)\s+Time\s+(?:Prelim|Finals)\s+Time\s*$",
+    re.MULTILINE,
+)
+_NO_AGE_SEED_TOKEN = re.compile(r"(?:\d+:)?\d{2}\.\d{2}|NT")
+_NO_AGE_OUTCOME_TOKEN = re.compile(
+    r"(?:J|X)?(?:\d+:)?\d{2}\.\d{2}|XDQ|DQ|NS|DNS|DNF|SCR"
+)
+
+
+def _has_no_age_result_columns(page_text: str) -> bool:
+    """Detect only the individual result header whose Age column is absent."""
+    return bool(_NO_AGE_COLUMN_HEADER.search(_normalize_extracted_text(page_text)))
+
+
+def _group_pdf_words_by_row(words: list[dict], tolerance: float = 1.0) -> list[list[dict]]:
+    """Group pdfplumber words that share a printed baseline."""
+    groups: list[tuple[float, list[dict]]] = []
+    for word in sorted(words, key=lambda item: (item["top"], item["x0"])):
+        for top, group_words in groups:
+            if abs(word["top"] - top) <= tolerance:
+                group_words.append(word)
+                break
+        else:
+            groups.append((word["top"], [word]))
+    return [sorted(group_words, key=lambda item: item["x0"]) for _, group_words in groups]
+
+
+def _parse_no_age_coordinate_rows(
+    pdf_pages: list,
+) -> tuple[dict[str, list[ParsedResult]], set[str], list[str]]:
+    """Parse HY-TEK's no-age result schema from its printed PDF columns.
+
+    Flattened text cannot distinguish variable-length names from teams when the
+    Age column is absent. Header coordinates provide the source's actual column
+    boundaries without applying this mode to ordinary age-bearing reports.
+    """
+    results_by_event: dict[str, list[ParsedResult]] = {}
+    no_age_events: set[str] = set()
+    quarantined: list[str] = []
+    current_event_number: str | None = None
+
+    for page in pdf_pages:
+        words = page.extract_words(use_text_flow=True)
+        for word in words:
+            word["text"] = _normalize_extracted_text(word["text"])
+
+        column_bounds: tuple[float, float, float] | None = None
+        for row in _group_pdf_words_by_row(words):
+            row_text = " ".join(word["text"] for word in row)
+            event_match = re.search(
+                r"(?:^|\()Event\s+([0-9]+[A-Za-z]?)\s+", row_text
+            )
+            if event_match:
+                current_event_number = event_match.group(1)
+                column_bounds = None
+
+            tokens = [word["text"] for word in row]
+            if (
+                current_event_number
+                and "Name" in tokens
+                and "Team" in tokens
+                and "Age" not in tokens
+                and tokens.count("Time") >= 2
+            ):
+                name_header = next(word for word in row if word["text"] == "Name")
+                team_header = next(word for word in row if word["text"] == "Team")
+                time_headers = [word for word in row if word["text"] == "Time"]
+                column_bounds = (
+                    name_header["x0"],
+                    team_header["x0"],
+                    time_headers[0]["x1"],
+                )
+                no_age_events.add(current_event_number)
+                results_by_event.setdefault(current_event_number, [])
+                continue
+
+            if not column_bounds or not current_event_number or not row:
+                continue
+            placement_token = row[0]["text"]
+            if not re.fullmatch(r"(?:\*?\d+|---)", placement_token):
+                continue
+
+            name_x, team_x, seed_column_end = column_bounds
+            # Header labels are left-aligned while data can begin a few points
+            # before the glyph itself. Keep that tolerance relative to the
+            # detected Team header rather than hardcoding a page coordinate.
+            team_split = team_x - 5
+            name_words = [word for word in row if name_x <= word["x0"] < team_split]
+            trailing_words = [word for word in row if word["x0"] >= team_split]
+            seed_candidates = [
+                word
+                for word in trailing_words
+                if word["x1"] <= seed_column_end + 1
+                and _NO_AGE_SEED_TOKEN.fullmatch(word["text"].rstrip("!"))
+            ]
+            if not name_words or not seed_candidates:
+                continue
+
+            seed_word = seed_candidates[-1]
+            outcome_candidates = [
+                word
+                for word in trailing_words
+                if word["x1"] > seed_column_end + 1
+                and _NO_AGE_OUTCOME_TOKEN.fullmatch(word["text"].rstrip("!"))
+            ]
+            name_raw = " ".join(word["text"] for word in name_words).strip()
+            team = " ".join(
+                word["text"] for word in trailing_words if word["x0"] < seed_word["x0"]
+            ).strip()
+            seed_time = seed_word["text"].rstrip("!")
+            if not name_raw or not team:
+                continue
+            if not outcome_candidates:
+                quarantined.append(
+                    f"Quarantined no-age result: event {current_event_number} "
+                    f"{name_raw} (missing outcome)"
+                )
+                continue
+
+            outcome_word = outcome_candidates[0]
+            raw_outcome = outcome_word["text"]
+            outcome = raw_outcome.rstrip("!")
+            qualifier = next(
+                (
+                    word["text"]
+                    for word in trailing_words
+                    if word["x0"] > outcome_word["x1"]
+                    and word["text"] in {"qMTS", "MTS"}
+                ),
+                None,
+            )
+
+            is_tied = placement_token.startswith("*")
+            placement = (
+                None
+                if placement_token == "---"
+                else int(placement_token.lstrip("*"))
+            )
+            is_exhibition = bool(
+                re.fullmatch(r"X(?:\d+:)?\d{2}\.\d{2}", outcome)
+            )
+            parsed_outcome = outcome[1:] if is_exhibition else outcome
+            is_dq = parsed_outcome in {"DQ", "XDQ"}
+            is_ns = parsed_outcome in {"NS", "DNS", "DNF", "SCR"}
+            finals_time = None if is_dq or is_ns else parsed_outcome
+            is_guest = name_raw.startswith("*") or is_exhibition
+
+            results_by_event[current_event_number].append(
+                ParsedResult(
+                    placement=placement,
+                    is_tied=is_tied,
+                    name=name_raw.lstrip("*").strip(),
+                    is_guest=is_guest,
+                    age=None,
+                    team=team,
+                    seed_time=seed_time,
+                    finals_time=finals_time,
+                    time_type="Prelim Time",
+                    is_dq=is_dq,
+                    dq_code=None,
+                    dq_description=None,
+                    is_ns=is_ns,
+                    qualifier=qualifier,
+                    reaction_time=None,
+                    is_exhibition=is_exhibition,
+                    splits=[],
+                    status=normalize_result_status(outcome),
+                    raw_outcome=raw_outcome,
+                )
+            )
+
+    return results_by_event, no_age_events, quarantined
+
+
 def parse_hytek_pdf(pdf_path: str | Path) -> tuple[ParsedMeet, ConfidenceReport]:
     """
     Parse a HY-TEK Meet Manager PDF file.
@@ -1118,12 +1436,32 @@ def parse_hytek_pdf(pdf_path: str | Path) -> tuple[ParsedMeet, ConfidenceReport]
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     pages_text: list[str] = []
+    coordinate_results: dict[str, list[ParsedResult]] = {}
+    no_age_events: set[str] = set()
+    quarantined: list[str] = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             pages_text.append(text or "")
+        if any(_has_no_age_result_columns(text) for text in pages_text):
+            coordinate_results, no_age_events, quarantined = _parse_no_age_coordinate_rows(
+                pdf.pages
+            )
 
-    return parse_hytek_text(pages_text)
+    meet, confidence = parse_hytek_text(pages_text)
+    if no_age_events:
+        for event in meet.events:
+            if event.event_number in no_age_events:
+                # Never retain age-bearing regex guesses for a schema that has
+                # no printed Age column.
+                event.results = coordinate_results.get(event.event_number, [])
+        confidence = compute_confidence(
+            meet,
+            confidence.total_lines,
+            confidence.classified_lines,
+            quarantined + confidence.unmatched_lines,
+        )
+    return meet, confidence
 
 
 # ---------------------------------------------------------------------------

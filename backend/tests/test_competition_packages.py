@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.competition_packages import resolve_session_metadata, upsert_competition_hierarchy
 from app.database import Base
-from app.ingestion import record_raw_document
+from app.ingestion import record_parse_job, record_raw_document, start_ingestion_run
 from app.main import (
     _compute_result_hash,
     _legacy_swim_date_compatible,
@@ -59,6 +59,162 @@ Event 1 Men 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Example, Athlete 20 Example Club 24.00 23.50"""
     return parse_hytek_text([page])[0]
+
+
+def _pre_exhibition_case(db: Session, tmp_path: Path) -> dict:
+    meet = Meet(
+        name="Singapore Short Course Invitational 2026",
+        startDate=datetime(2026, 6, 1),
+    )
+    swimmer = Swimmer(name="Lim, Glen", age=17, team="Example Club")
+    db.add_all([meet, swimmer])
+    db.flush()
+    parsed = parse_hytek_text(["""Singapore Short Course Invitational 2026 - 1/6/2026 to 2/6/2026
+Results - Day 2 Session 3
+Event 24 Men 200 SC Meter Freestyle
+Name Age Team Seed Time Finals Time
+--- Lim, Glen 17 Example Club 1:50.00 X1:47.30"""])[0]
+    session = upsert_competition_hierarchy(
+        db,
+        source_key="https://example.test/ssci-2026/",
+        competition_title="Singapore Short Course Invitational 2026",
+        parsed=parsed,
+        legacy_meet=meet,
+    )
+    raw = record_raw_document(
+        db,
+        file_bytes=b"%PDF-1.4\nssci exhibition source\n%%EOF",
+        filename="ssci-day-2-session-3.pdf",
+        source_type="fixture",
+        source_label="fixture",
+        archive_root=tmp_path / "archive",
+    )
+    old_ingestion_run = start_ingestion_run(
+        db,
+        mode="rebuild",
+        input_scope="competition:https://example.test/ssci-2026/:old",
+        parser_version="hytek-v1",
+    )
+    old_parse_job = record_parse_job(
+        db,
+        raw_document=raw,
+        parser_name="hytek",
+        parser_version="hytek-v1",
+        status="succeeded",
+        confidence_score=1.0,
+        confidence_passed=True,
+        events_count=1,
+        individual_results_count=1,
+        relay_results_count=0,
+        unmatched_lines_count=0,
+    )
+    reimport_ingestion_run = start_ingestion_run(
+        db,
+        mode="rebuild",
+        input_scope="competition:https://example.test/ssci-2026/:reimport",
+        parser_version="hytek-v2",
+    )
+    reimport_parse_job = record_parse_job(
+        db,
+        raw_document=raw,
+        parser_name="hytek",
+        parser_version="hytek-v2",
+        status="succeeded",
+        confidence_score=1.0,
+        confidence_passed=True,
+        events_count=1,
+        individual_results_count=1,
+        relay_results_count=0,
+        unmatched_lines_count=0,
+    )
+    event = parsed.events[0]
+    source = event.results[0]
+    swim_date = datetime(2026, 6, 2)
+
+    def content_hash(*, is_exhibition: bool) -> str:
+        return _compute_result_hash(
+            meet.id,
+            event.event_name,
+            source.name,
+            source.team,
+            "Timed Final",
+            source.finals_time,
+            source.age,
+            session_id=session.id,
+            swim_date=swim_date,
+            source_event_number=event.event_number,
+            status="finished",
+            is_exhibition=is_exhibition,
+        )
+
+    return {
+        "meet": meet,
+        "swimmer": swimmer,
+        "parsed": parsed,
+        "session": session,
+        "raw": raw,
+        "old_ingestion_run": old_ingestion_run,
+        "old_parse_job": old_parse_job,
+        "reimport_ingestion_run": reimport_ingestion_run,
+        "reimport_parse_job": reimport_parse_job,
+        "event": event,
+        "source": source,
+        "swim_date": swim_date,
+        "pre_exhibition_hash": content_hash(is_exhibition=False),
+        "canonical_hash": content_hash(is_exhibition=True),
+    }
+
+
+def _source_identity_result(
+    case: dict,
+    *,
+    is_exhibition: bool = False,
+    content_hash: str | None = None,
+    sourced: bool = True,
+) -> Result:
+    source = case["source"]
+    return Result(
+        swimmerId=case["swimmer"].id,
+        meetId=case["meet"].id,
+        event=case["event"].event_name,
+        time=source.finals_time,
+        seedTime=source.seed_time,
+        placement=source.placement,
+        isDQ=source.is_dq,
+        resultStatus="finished",
+        dqCode=source.dq_code,
+        dqDescription=source.dq_description,
+        isGuest=source.is_guest,
+        isExhibition=is_exhibition,
+        qualifier=source.qualifier,
+        reactionTime=source.reaction_time,
+        splits=None,
+        round="Timed Final",
+        swimDate=case["swim_date"],
+        contentHash=content_hash or case["pre_exhibition_hash"],
+        rawSwimmerName=source.name,
+        rawTeamName=source.team,
+        sourceDocumentSha256=case["raw"].sha256 if sourced else None,
+        parseJobId=case["old_parse_job"].id if sourced else None,
+        ingestionRunId=case["old_ingestion_run"].id if sourced else None,
+        parserVersion="hytek-v1" if sourced else None,
+        sourceEventNumber=case["event"].event_number,
+        sessionId=case["session"].id,
+    )
+
+
+def _reimport_exhibition_case(db: Session, case: dict):
+    return _process_parsed_meet(
+        case["parsed"],
+        case["meet"],
+        case["swim_date"],
+        db,
+        raw_document=case["raw"],
+        parse_job=case["reimport_parse_job"],
+        ingestion_run=case["reimport_ingestion_run"],
+        parser_version="hytek-v2",
+        competition_session=case["session"],
+    )
 
 
 def test_resolve_session_date_from_verified_segment_range_and_day():
@@ -296,6 +452,492 @@ def test_sourced_legacy_result_is_attached_to_session_instead_of_duplicated(tmp_
     assert legacy.contentHash != "legacy-hash"
 
 
+def test_canonical_reimport_upgrades_sourced_session_bound_pre_exhibition_result(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(case)
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+    assert existing.isExhibition is False
+    assert existing.contentHash == case["pre_exhibition_hash"]
+    assert existing.contentHash != case["canonical_hash"]
+
+    processed = _reimport_exhibition_case(db, case)
+    db.flush()
+
+    source = case["source"]
+    event = case["event"]
+    assert processed == (
+        0,
+        0,
+        1,
+        [],
+        [{
+            "event": event.event_name,
+            "name": source.name,
+            "team": source.team,
+            "round": "Timed Final",
+            "time": source.finals_time,
+        }],
+    )
+    assert db.query(Result).count() == 1
+    upgraded = db.query(Result).one()
+    assert upgraded.id == existing_id
+    assert upgraded.isExhibition is True
+    assert upgraded.contentHash == case["canonical_hash"]
+    assert (
+        upgraded.swimmerId,
+        upgraded.meetId,
+        upgraded.sessionId,
+        upgraded.sourceDocumentSha256,
+        upgraded.sourceEventNumber,
+        upgraded.event,
+        upgraded.rawSwimmerName,
+        upgraded.rawTeamName,
+        upgraded.round,
+        upgraded.swimDate,
+        upgraded.time,
+        upgraded.seedTime,
+        upgraded.placement,
+        upgraded.isDQ,
+        upgraded.resultStatus,
+        upgraded.dqCode,
+        upgraded.dqDescription,
+        upgraded.isGuest,
+        upgraded.qualifier,
+        upgraded.reactionTime,
+        upgraded.splits,
+        upgraded.parseJobId,
+        upgraded.ingestionRunId,
+        upgraded.parserVersion,
+    ) == (
+        case["swimmer"].id,
+        case["meet"].id,
+        case["session"].id,
+        case["raw"].sha256,
+        event.event_number,
+        event.event_name,
+        source.name,
+        source.team,
+        "Timed Final",
+        case["swim_date"],
+        source.finals_time,
+        source.seed_time,
+        source.placement,
+        source.is_dq,
+        "finished",
+        source.dq_code,
+        source.dq_description,
+        source.is_guest,
+        source.qualifier,
+        source.reaction_time,
+        None,
+        case["old_parse_job"].id,
+        case["old_ingestion_run"].id,
+        "hytek-v1",
+    )
+
+
+def test_canonical_reimport_leaves_existing_sourced_exhibition_result_unchanged(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(
+        case,
+        is_exhibition=True,
+        content_hash=case["canonical_hash"],
+    )
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+    original_provenance = (
+        existing.sourceDocumentSha256,
+        existing.parseJobId,
+        existing.ingestionRunId,
+        existing.parserVersion,
+        existing.sessionId,
+    )
+
+    processed = _reimport_exhibition_case(db, case)
+    db.flush()
+
+    assert processed[0] == 0
+    assert processed[2] == 1
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is True
+    assert unchanged.contentHash == case["canonical_hash"]
+    assert (
+        unchanged.sourceDocumentSha256,
+        unchanged.parseJobId,
+        unchanged.ingestionRunId,
+        unchanged.parserVersion,
+        unchanged.sessionId,
+    ) == original_provenance
+
+
+def test_canonical_reimport_does_not_rebind_sessionless_exhibition_variant(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(
+        case,
+        is_exhibition=True,
+        content_hash=case["canonical_hash"],
+    )
+    existing.sessionId = None
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+    original_provenance = (
+        existing.sourceDocumentSha256,
+        existing.parseJobId,
+        existing.ingestionRunId,
+        existing.parserVersion,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Matching result content hash has conflicting evidence",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is True
+    assert unchanged.contentHash == case["canonical_hash"]
+    assert unchanged.sessionId is None
+    assert (
+        unchanged.sourceDocumentSha256,
+        unchanged.parseJobId,
+        unchanged.ingestionRunId,
+        unchanged.parserVersion,
+    ) == original_provenance
+
+
+def test_pre_exhibition_upgrade_rejects_parse_job_for_different_raw_document(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    other_raw = record_raw_document(
+        db,
+        file_bytes=b"%PDF-1.4\na different source\n%%EOF",
+        filename="different-source.pdf",
+        source_type="fixture",
+        source_label="fixture",
+        archive_root=tmp_path / "archive",
+    )
+    other_parse_job = record_parse_job(
+        db,
+        raw_document=other_raw,
+        parser_name="hytek",
+        parser_version="hytek-v1",
+        status="succeeded",
+        confidence_score=1.0,
+        confidence_passed=True,
+        events_count=1,
+        individual_results_count=1,
+        relay_results_count=0,
+        unmatched_lines_count=0,
+    )
+    existing = _source_identity_result(case)
+    existing.parseJobId = other_parse_job.id
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is False
+    assert unchanged.contentHash == case["pre_exhibition_hash"]
+    assert unchanged.parseJobId == other_parse_job.id
+    assert unchanged.sourceDocumentSha256 == case["raw"].sha256
+
+
+def test_pre_exhibition_upgrade_rejects_parse_job_parser_version_mismatch(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(case)
+    existing.parserVersion = "hytek-v0"
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is False
+    assert unchanged.contentHash == case["pre_exhibition_hash"]
+    assert unchanged.parseJobId == case["old_parse_job"].id
+    assert unchanged.parserVersion == "hytek-v0"
+
+
+@pytest.mark.parametrize(
+    ("status", "confidence_passed"),
+    [("failed", True), ("succeeded", False)],
+)
+def test_pre_exhibition_upgrade_requires_successful_confidence_passed_parse_job(
+    tmp_path: Path,
+    status: str,
+    confidence_passed: bool,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(case)
+    case["old_parse_job"].status = status
+    case["old_parse_job"].confidencePassed = confidence_passed
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is False
+    assert unchanged.contentHash == case["pre_exhibition_hash"]
+    assert unchanged.parseJobId == case["old_parse_job"].id
+
+
+def test_pre_exhibition_upgrade_rejects_inconsistent_ingestion_run_provenance(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(case)
+    existing.ingestionRunId = case["reimport_ingestion_run"].id
+    db.add(existing)
+    db.flush()
+    existing_id = existing.id
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    unchanged = db.get(Result, existing_id)
+    assert unchanged.isExhibition is False
+    assert unchanged.contentHash == case["pre_exhibition_hash"]
+    assert unchanged.ingestionRunId == case["reimport_ingestion_run"].id
+
+
+def test_pre_exhibition_upgrade_rejects_conflicting_result_evidence(tmp_path: Path):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(case)
+    existing.seedTime = "conflicting-seed-time"
+    db.add(existing)
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    assert existing.isExhibition is False
+    assert existing.contentHash == case["pre_exhibition_hash"]
+    assert existing.seedTime == "conflicting-seed-time"
+
+
+def test_pre_exhibition_upgrade_rejects_ambiguous_source_identity(tmp_path: Path):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    first = _source_identity_result(case)
+    second = _source_identity_result(case, content_hash="second-source-identity-hash")
+    db.add_all([first, second])
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="Multiple source-identity results matched one sourced session performance",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 2
+    assert first.isExhibition is False
+    assert second.isExhibition is False
+    assert first.contentHash == case["pre_exhibition_hash"]
+    assert second.contentHash == "second-source-identity-hash"
+
+
+def test_pre_exhibition_upgrade_rejects_current_and_legacy_source_ambiguity(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    current = _source_identity_result(case)
+    legacy = _source_identity_result(case, content_hash="legacy-source-identity-hash")
+    legacy.sessionId = None
+    db.add_all([current, legacy])
+    db.flush()
+
+    with pytest.raises(ValueError, match="Multiple .* results matched one sourced"):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 2
+    assert current.isExhibition is False
+    assert legacy.isExhibition is False
+    assert current.contentHash == case["pre_exhibition_hash"]
+    assert legacy.contentHash == "legacy-source-identity-hash"
+    assert current.sessionId == case["session"].id
+    assert legacy.sessionId is None
+
+
+def test_pre_exhibition_upgrade_rejects_wrong_session_source_identity(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    wrong_session = upsert_competition_hierarchy(
+        db,
+        source_key="https://example.test/ssci-2026/",
+        competition_title="Singapore Short Course Invitational 2026",
+        parsed=_parsed(
+            "Singapore Short Course Invitational 2026",
+            "1/6/2026 to 2/6/2026",
+            1,
+            1,
+        ),
+        legacy_meet=case["meet"],
+    )
+    misplaced = _source_identity_result(case)
+    misplaced.sessionId = wrong_session.id
+    db.add(misplaced)
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="Sourced result session conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    assert misplaced.sessionId == wrong_session.id
+    assert misplaced.isExhibition is False
+    assert misplaced.contentHash == case["pre_exhibition_hash"]
+
+
+def test_pre_exhibition_upgrade_rejects_legacy_source_evidence_conflict(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    legacy = _source_identity_result(case)
+    legacy.sessionId = None
+    db.add(legacy)
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="Legacy sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    assert legacy.sessionId is None
+    assert legacy.isExhibition is False
+    assert legacy.contentHash == case["pre_exhibition_hash"]
+
+
+def test_canonical_reimport_never_downgrades_sourced_exhibition_result(
+    tmp_path: Path,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    existing = _source_identity_result(
+        case,
+        is_exhibition=True,
+        content_hash=case["canonical_hash"],
+    )
+    db.add(existing)
+    db.flush()
+    case["source"].is_exhibition = False
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    assert existing.isExhibition is True
+    assert existing.contentHash == case["canonical_hash"]
+
+
+def test_pre_exhibition_upgrade_does_not_reconcile_unsourced_result(tmp_path: Path):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    unsourced = _source_identity_result(case, sourced=False)
+    db.add(unsourced)
+    db.flush()
+    unsourced_id = unsourced.id
+
+    processed = _reimport_exhibition_case(db, case)
+    db.flush()
+
+    assert processed[0] == 1
+    assert processed[2] == 0
+    assert db.query(Result).count() == 2
+    unchanged = db.get(Result, unsourced_id)
+    assert unchanged.isExhibition is False
+    assert unchanged.contentHash == case["pre_exhibition_hash"]
+    imported = db.query(Result).filter(Result.id != unsourced_id).one()
+    assert imported.isExhibition is True
+    assert imported.contentHash == case["canonical_hash"]
+    assert imported.sourceDocumentSha256 == case["raw"].sha256
+
+
+@pytest.mark.parametrize("missing_provenance", ["parseJobId", "ingestionRunId", "parserVersion"])
+def test_pre_exhibition_upgrade_rejects_incomplete_provenance(
+    tmp_path: Path,
+    missing_provenance: str,
+):
+    db = _test_session()
+    case = _pre_exhibition_case(db, tmp_path)
+    incomplete = _source_identity_result(case)
+    setattr(incomplete, missing_provenance, None)
+    db.add(incomplete)
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="Current sourced result evidence conflicts with parsed source",
+    ):
+        _reimport_exhibition_case(db, case)
+
+    assert db.query(Result).count() == 1
+    assert incomplete.isExhibition is False
+    assert incomplete.contentHash == case["pre_exhibition_hash"]
+    assert getattr(incomplete, missing_provenance) is None
+
+
 def test_sourced_legacy_result_conflict_fails_instead_of_rebinding(tmp_path: Path):
     db = _test_session()
     meet = Meet(name="56th SNAG Seniors", startDate=datetime(2026, 3, 17))
@@ -355,6 +997,7 @@ def test_parser_output_populates_rebuildable_competition_database(tmp_path: Path
     db = _test_session()
     juniors = _parsed("56th SNAG Juniors", "13/3/2026 to 15/3/2026", 1, 1)
     seniors = _parsed("56th SNAG Seniors", "17/3/2026 to 22/3/2026", 1, 1)
+    seniors.events[0].results[0].is_exhibition = True
     juniors.events.append(ParsedEvent(
         event_number="201",
         event_name="Girls 13-14 4x50 LC Meter Freestyle Relay",
@@ -423,6 +1066,7 @@ def test_parser_output_populates_rebuildable_competition_database(tmp_path: Path
     assert db.query(CompetitionSession).count() == 2
     assert db.query(Meet).count() == 2
     assert db.query(Result).count() == 2
+    assert db.query(Result).filter(Result.isExhibition.is_(True)).count() == 1
     assert db.query(Swimmer).count() == 3
     assert all(result.sessionId is not None for result in db.query(Result).all())
     assert {run.inputScope for run in db.query(IngestionRun).all()} == {

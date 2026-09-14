@@ -26,6 +26,8 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+import app.parsers.hytek as hytek_parser
+from app.parsers.base import HyTekParser
 from app.parsers.hytek import (
     ParsedEvent,
     ParsedMeet,
@@ -44,6 +46,27 @@ from app.parsers.hytek import (
 
 PDF_PATH = Path(__file__).resolve().parents[3] / ".." / "data" / "56th-snag-seniors-2026-results-day-1-session-1.pdf"
 HAS_PDF = PDF_PATH.exists()
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SNSC20_DAY2_PATH = (
+    REPO_ROOT
+    / "raw-data/sg-aquatics/events/20th-snsc-2025/overall_results"
+    / "snsc2025-day-2-heats-results.pdf"
+)
+SNSC20_DAY1_PATH = (
+    REPO_ROOT
+    / "raw-data/sg-aquatics/events/20th-snsc-2025/overall_results"
+    / "snsc2025-day-1-heats-results.pdf"
+)
+SNSC21_SESSION1_PATH = (
+    REPO_ROOT
+    / "raw-data/sg-aquatics/events/21st-snsc-2026/overall_results"
+    / "21st-snsc-2026-results-day-1-session-1.pdf"
+)
+SSS25_FEB_DAY3_SESSION4_PATH = (
+    REPO_ROOT
+    / "raw-data/sg-aquatics/events/singapore-swim-series-2025/overall_results"
+    / "feb-swim-series-2025-day-3-session-4-results_v2.pdf"
+)
 
 
 # ===========================================================================
@@ -227,6 +250,46 @@ Name Age Team Seed Time Finals Time
         assert confidence.checks["meet_name"] is True
         assert confidence.checks["meet_dates"] is True
 
+    def test_abbreviated_month_date_range_is_parsed(self):
+        page = """11th SNSC SCM 2025 - 07-Nov-25 to 09-Nov-25
+Results - Day 1 Session 1
+Event 1 Men 50 SC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_dates == "07-Nov-25 to 09-Nov-25"
+        assert meet.start_date == date(2025, 11, 7)
+        assert meet.end_date == date(2025, 11, 9)
+        assert confidence.checks["meet_dates"] is True
+
+    def test_unambiguous_us_slash_date_range_is_parsed(self):
+        page = """47th SEA Age 2025 - 6/25/2025 to 6/27/2025
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_dates == "6/25/2025 to 6/27/2025"
+        assert meet.start_date == date(2025, 6, 25)
+        assert meet.end_date == date(2025, 6, 27)
+        assert confidence.checks["meet_dates"] is True
+
+    def test_ambiguous_slash_date_remains_day_first(self):
+        page = """Day First Meet - 5/6/2025
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.start_date == date(2025, 6, 5)
+        assert meet.end_date == date(2025, 6, 5)
+
     def test_bare_results_keeps_day_and_session_unknown(self):
         page = """HY-TEK's MEET MANAGER 8.0 Page 1
 Single Day Meet - 31/5/2026
@@ -312,6 +375,101 @@ Name Age Team Seed Time Finals Time
             assert confidence.checks["positive_day_session"] is False
             assert confidence.passed is False
 
+    def test_coordinate_mode_only_detects_individual_header_without_age(self):
+        assert hytek_parser._has_no_age_result_columns(
+            "Name Team Seed Time Prelim Time"
+        ) is True
+        assert hytek_parser._has_no_age_result_columns(
+            "Name Age Team Seed Time Prelim Time"
+        ) is False
+        assert hytek_parser._has_no_age_result_columns(
+            "Team Relay Seed Time Finals Time"
+        ) is False
+
+    def test_private_use_encoded_text_is_normalized_before_parsing(self):
+        plain = """Singapore Swim Series II February 2025 - 14/2/2025 to 16/2/2025
+Results - Day 3 Session 4
+Event 801 Girls 13-14 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 14 Example Club 28.00 27.50"""
+        encoded = "".join(chr(ord(char) + 0xF000) if ord(char) <= 0xFF else char for char in plain)
+
+        meet, confidence = parse_hytek_text([encoded])
+
+        assert meet.meet_name == "Singapore Swim Series II February 2025"
+        assert meet.start_date == date(2025, 2, 14)
+        assert meet.total_results == 1
+        assert confidence.passed is True
+
+    def test_alphanumeric_event_token_is_retained_across_continuation(self):
+        event_name = "Men 13 & Over 100 LC Meter Breaststroke"
+        pages = [
+            f"""Alpha Event Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 101F {event_name}
+Name Age Team Seed Time Finals Time
+1 First, Athlete 18 Example Club 1:00.00 59.50""",
+            f"""Alpha Event Meet - 1/6/2026
+Results - Day 1 Session 1
+(Event 101F {event_name})
+Name Age Team Seed Time Finals Time
+2 Second, Athlete 19 Example Club 1:01.00 1:00.00""",
+        ]
+
+        meet, _confidence = parse_hytek_text(pages)
+
+        assert [(event.event_number, len(event.results)) for event in meet.events] == [("101F", 2)]
+
+    @pytest.mark.parametrize(
+        ("standard_line", "expected"),
+        [
+            ("2:47.17 13-14 MTS MTS", "2:47.17"),
+            ("1:17.19 MTS Minimum TimeStandard", "1:17.19"),
+        ],
+    )
+    def test_explicit_time_standard_lines_are_parsed(self, standard_line, expected):
+        page = f"""Standards Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+{standard_line}
+Name Age Team Seed Time Prelim Time
+1 Example, Athlete 20 Example Club 24.00 23.50 MTS"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.events[0].time_standard == expected
+        assert len(meet.events[0].results) == 1
+
+    @pytest.mark.parametrize("placement", ["1", "12"])
+    def test_placement_led_first_result_is_not_consumed_as_time_standard(self, placement):
+        page = f"""Standards Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Prelim Time
+{placement} Example, Athlete 20 Example Club 24.00 23.50 MTS"""
+
+        meet, _confidence = parse_hytek_text([page])
+
+        assert meet.events[0].time_standard is None
+        assert [result.name for result in meet.events[0].results] == ["Example, Athlete"]
+
+    def test_xdq_is_dq_without_becoming_exhibition_and_retains_source_marker(self):
+        page = """Singapore Swim Series I January 2025 - 18/1/2025 to 19/1/2025
+Results - Day 1 Session 1
+Event 1 Girls 8 Year Olds 50 LC Meter Freestyle
+Name Age Team Seed Time Prelim Time
+--- Xu, Ruiqi 8 Swimfast Aquatic Club NT XDQ"""
+
+        meet, _confidence = parse_hytek_text([page])
+        result = meet.events[0].results[0]
+
+        assert result.is_dq is True
+        assert result.status == "dq"
+        assert result.finals_time is None
+        assert result.is_guest is False
+        assert result.is_exhibition is False
+        assert result.raw_outcome == "XDQ"
+
     def test_individual_exhibition_time_is_parsed_without_split_bleed(self):
         page = """Singapore Short Course Invitational 2026 - 1/6/2026 to 2/6/2026
 Results - Day 2 Session 3
@@ -327,9 +485,11 @@ r:+0.61 25.20 51.40 (26.20) 1:18.10 (26.70) 1:47.30 (29.20)"""
 
         assert [result.name for result in results] == ["Wong, Example", "Lim, Glen"]
         assert results[0].finals_time == "1:46.00"
+        assert results[0].is_exhibition is False
         assert len(results[0].splits) == 4
         assert results[1].finals_time == "1:47.30"
         assert results[1].is_guest is True
+        assert results[1].is_exhibition is True
         assert len(results[1].splits) == 4
         assert confidence.passed is True
 
@@ -446,6 +606,25 @@ Team Relay Seed Time Finals Time
         meet, _confidence = parse_hytek_text([page])
 
         assert meet.events[0].relay_results[0].status == expected_status
+
+    def test_judge_decision_relay_time_is_distinct_from_exhibition(self):
+        page = """11th SNSC SCM 2025 - 07-Nov-25 to 09-Nov-25
+Results - Day 1 Session 1
+Event 106 Mixed 200 SC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+3 Nexus International School A 1:48.17 J1:45.65
+--- Exhibition Club B 1:49.00 X1:46.00"""
+
+        meet, _confidence = parse_hytek_text([page])
+        judge, exhibition = meet.events[0].relay_results
+
+        assert judge.finals_time == "1:45.65"
+        assert judge.is_judge_decision is True
+        assert judge.is_exhibition is False
+        assert judge.raw_outcome == "J1:45.65"
+        assert exhibition.finals_time == "1:46.00"
+        assert exhibition.is_judge_decision is False
+        assert exhibition.is_exhibition is True
 
     def test_relay_round_headers_distinguish_final_from_timed_final(self):
         page = """Round Meet - 1/6/2026
@@ -567,6 +746,84 @@ r:+0.50 25.00 51.00 (26.00) 1:18.00 (27.00) 1:45.00 (27.00)"""
         assert len(swimmers) == 4
         assert "WU, Dylan Jiaxu" in swimmers
         assert "Hong, Cheng Hou" in swimmers
+
+
+# ===========================================================================
+# Integration tests: archived source PDFs
+# ===========================================================================
+
+@pytest.mark.skipif(not SNSC21_SESSION1_PATH.exists(), reason="Archived 21st SNSC PDF not found")
+def test_snsc21_lone_nt_row_is_retained_as_explicit_unknown_outcome():
+    meet, confidence = parse_hytek_pdf(SNSC21_SESSION1_PATH)
+    matches = [
+        result
+        for event in meet.events
+        if event.event_number == "108"
+        for result in event.results
+        if result.name == "Yu, Chengyou"
+    ]
+
+    assert len(matches) == 1
+    result = matches[0]
+    assert result.age == 17
+    assert result.team == "Nexus International School"
+    assert result.seed_time is None
+    assert result.finals_time is None
+    assert result.status == "unknown"
+    assert result.raw_outcome == "NT"
+    assert not any("Yu, Chengyou" in line for line in confidence.unmatched_lines)
+
+
+@pytest.mark.skipif(not SNSC20_DAY1_PATH.exists(), reason="Archived 20th SNSC PDF not found")
+def test_unconfirmed_lone_nt_row_remains_quarantined():
+    meet, confidence = parse_hytek_pdf(SNSC20_DAY1_PATH)
+    unknown_matches = [
+        result
+        for event in meet.events
+        for result in event.results
+        if result.name == "Langeveld, Wout" and result.raw_outcome == "NT"
+    ]
+
+    assert unknown_matches == []
+    assert any("Langeveld, Wout" in line for line in confidence.unmatched_lines)
+
+
+@pytest.mark.skipif(
+    not SSS25_FEB_DAY3_SESSION4_PATH.exists(),
+    reason="Archived Singapore Swim Series 2025 PDF not found",
+)
+def test_private_use_encoded_source_is_detected_and_parsed():
+    assert HyTekParser().can_parse(SSS25_FEB_DAY3_SESSION4_PATH) is True
+
+    meet, confidence = parse_hytek_pdf(SSS25_FEB_DAY3_SESSION4_PATH)
+
+    assert meet.meet_name == "Singapore Swim Series II February 2025"
+    assert meet.session == "Day 3 Session 4"
+    assert meet.total_results == 1164
+    assert meet.total_relay_results == 0
+    assert confidence.passed is True
+
+@pytest.mark.skipif(not SNSC20_DAY2_PATH.exists(), reason="Archived 20th SNSC PDF not found")
+def test_snsc20_day2_no_age_layout_uses_coordinate_columns_safely():
+    meet, confidence = parse_hytek_pdf(SNSC20_DAY2_PATH)
+    counts = {event.event_number: len(event.results) for event in meet.events}
+    results = [result for event in meet.events for result in event.results]
+
+    assert counts == {
+        "201": 61,
+        "202": 49,
+        "203": 96,
+        "204": 79,
+        "205": 64,
+        "206": 62,
+        "207": 26,
+        "208": 19,
+    }
+    assert len(results) == 456
+    assert all(result.age is None for result in results)
+    assert not any(result.name == "Midsayap Pirates Team" and result.age == 7 for result in results)
+    assert not any(result.name == "Kate Ona" for result in results)
+    assert any("Kate Ona" in line and "missing outcome" in line for line in confidence.unmatched_lines)
 
 
 # ===========================================================================

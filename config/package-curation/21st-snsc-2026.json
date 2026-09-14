@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "package_id": "21st-snsc-2026",
+  "source_page": "https://www.sgaquatics.org.sg/21st-snsc-2026/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "21st-snsc-2026-results-day-1-session-1.pdf",
+      "sha256": "1666ac8295146b283c3edd9d0a3d5a5d89650368229a9678dbf17bdacdf3a3ec",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-1-session-2.pdf",
+      "sha256": "6e8bcf2435bdcc69915f6a0932705f1111c19d718d3e04c3c0edf3c10a606fc6",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-2-session-3.pdf",
+      "sha256": "8fdaadf732f4cb329872ca3c2ddd2f74555a4777a67aa533b4f03304ea31b575",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-2-session-4.pdf",
+      "sha256": "2df9c116c2b06e5860cb9be9128fcc695e2524b2287e51c33e6d9633109253a8",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-3-session-5.pdf",
+      "sha256": "5c1675ff15b55cc18626e4b94061d7407847f313e7ea1cc83a1ba416138975c8",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-3-session-6.pdf",
+      "sha256": "7555e4047290673981146ed6da740b5f46288c3f80fdcc8189ebdce12b4fb0b6",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-4-session-7.pdf",
+      "sha256": "169ec9d1dfcce9dc281142a793f2a36303558639b776f52932c103e9070de895",
+      "category": "overall_results"
+    },
+    {
+      "filename": "21st-snsc-2026-results-day-4-session-8.pdf",
+      "sha256": "aa622b8a7c78675288b8fd562411a9486c002eeaa959cfa8496b64ac220ee330",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [
+    {
+      "id": "exclude-session2-cumulative-reprints",
+      "source_sha256": "6e8bcf2435bdcc69915f6a0932705f1111c19d718d3e04c3c0edf3c10a606fc6",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": ["109", "110"],
+        "duplicate_of_source_sha256": "1666ac8295146b283c3edd9d0a3d5a5d89650368229a9678dbf17bdacdf3a3ec"
+      },
+      "expected_matches": 21
+    },
+    {
+      "id": "exclude-session8-cumulative-reprints",
+      "source_sha256": "aa622b8a7c78675288b8fd562411a9486c002eeaa959cfa8496b64ac220ee330",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": ["407", "408"],
+        "duplicate_of_source_sha256": "169ec9d1dfcce9dc281142a793f2a36303558639b776f52932c103e9070de895"
+      },
+      "expected_matches": 37
+    }
+  ],
+  "expected": {
+    "documents": 8,
+    "individual_results": 3540,
+    "relay_results": 53
+  }
+}

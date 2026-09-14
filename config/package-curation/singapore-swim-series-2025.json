@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "package_id": "singapore-swim-series-2025",
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/singapore-swim-series-2025/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "jan-swim-series-2025-day-1-session-1.pdf",
+      "sha256": "a518f451a216a1127ce523836df50f327641d54811b46147bdfcd55c6c9caaaf",
+      "category": "other_pdf"
+    },
+    {
+      "filename": "jan-swim-series-2025-day-2-session-2.pdf",
+      "sha256": "ca8da0d2496455a31a555f86a9dd9365213478c2013dd9d9cc8fb9414a12631f",
+      "category": "other_pdf"
+    },
+    {
+      "filename": "jan-swim-series-2025-day-2-session-3-results.pdf",
+      "sha256": "6eb953631596ee5a7e39af057626bb78610d4f3a6ea4d73bc77494f0633df644",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2025-day-3-session-4-results.pdf",
+      "sha256": "553c86bc0f8de89a25389d526053ec990bf0b4cfb0003a56d3e6d49d2e638dd6",
+      "category": "overall_results"
+    },
+    {
+      "filename": "jan-swim-series-2025-day-3-session-5-results.pdf",
+      "sha256": "12ed3157b099b548bcf2ffb25767dff02bdb3adcbe1747b5e203edfe9dbd8845",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2025-day-1session-1-results_v2.pdf",
+      "sha256": "961863a3c4330e8a30089f554941350be3122326de52082eedf5551b8b1e80fc",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2025-day-2-session-2-results_v2.pdf",
+      "sha256": "7e8cb8de439d9321439d2d425f8cfa74c60081a67f7ef34c443722c9355f802f",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2025-day-2-session-3-results_v2.pdf",
+      "sha256": "935f07be82f432fab575428a5998c16878d627e09f1db8d4e83b3df2a8fa4bec",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2025-day-3-session-4-results_v2.pdf",
+      "sha256": "1be427e2e13ce987ee610b278f32299047279c7ac6cfe6caafeb6292942b4d9b",
+      "category": "overall_results"
+    },
+    {
+      "filename": "feb-swim-series-2025-day-3-session-5-results_v2.pdf",
+      "sha256": "cb817ac851f8fb0c0f75802ffe5cb58be1e8752ee9b6d7509f2a8248fcd705aa",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [],
+  "expected": {
+    "documents": 10,
+    "individual_results": 9043,
+    "relay_results": 0
+  }
+}

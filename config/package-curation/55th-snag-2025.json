@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "package_id": "55th-snag-2025",
+  "source_page": "https://www.sgaquatics.org.sg/swimming/events/55th-snag-2025/",
+  "status": "ready",
+  "documents": [
+    {
+      "filename": "55th-snag-juniors-results-j1-day-1-session-1-16-march-2025.pdf",
+      "sha256": "aae41f8b48108d7d53719ebefb4b0314bac131c8a2ac5f0244cd2d3c1a918a35",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-juniors-results-j2-day-session-2.pdf",
+      "sha256": "ee1b30cf10cae31248b0390069ce2d5ac61830ba2504d86618ecb5956ea7aad9",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-juniors-results-j3-day-2-session-3.pdf",
+      "sha256": "aae64eacba6f44e06499085ff121b8ea5ad842cbc99a832d564264d555fb07ae",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-juniors-results-j4-day-3-session-4.pdf",
+      "sha256": "f24925daa0a2cf187a109c87b9696979605e996efe497af28926bc265fe505be",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-juniors-results-j5-day-3-session-5.pdf",
+      "sha256": "5bfc60c542edb7674c534bba83f44b10fbd003417ed5eff32d5821983805209c",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-1-session-1.pdf",
+      "sha256": "103a008781304bd3cbbe2b8793e9e62e69f54bcf13fe5d6ad363ff50e5148e43",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-1-finals-based-on-a-b-and-superfinal.pdf",
+      "sha256": "7723b9c09d1fa9dafe099bea56ed33280ff8dc4a98ae25364e4f652ccdb371cf",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-2-heatss.pdf",
+      "sha256": "1a7fe644b8aab7f81bba9c2b73d4728fcee9bf9f47226d67fc193c676beae183",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-2-finals-based-on-a-b-and-superfinal.pdf",
+      "sha256": "607199ea6513376f695dea72cbfc5dce5659fa6f0049a3a17ddfe0bea61209f9",
+      "category": "overall_results"
+    },
+    {
+      "filename": "snag-seniors-results-day-3-heats.pdf",
+      "sha256": "8c4c697a751f1910f05bd653d4646c704f35d1ae1e781dc4bc2a36816b40da5a",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-results-day-3-finals-based-on-a-b-and-superfinal.pdf",
+      "sha256": "d2198a441e3409951dd3e6b534d905a814be76876496bf46820e5430290bad74",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-results-day-4-heats.pdf",
+      "sha256": "329ba80e265cfefda9dbf3c4e1656e422dec1937d5c1821b08e44760c95c1111",
+      "category": "overall_results"
+    },
+    {
+      "filename": "results-based-on-ab-super-finals-on-day-4.pdf",
+      "sha256": "9ed38a9de147d92364e91136b5bea4b4a94bac16f67f7ff8615cd72e7f383745",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-5-heats.pdf",
+      "sha256": "635f7b5520fa4dc4d4794d952aa9c51014d14d536c266ff58e0bdf56d613e7cf",
+      "category": "overall_results"
+    },
+    {
+      "filename": "results-based-on-ab-super-finals-on-day-5.pdf",
+      "sha256": "d7325f7ae1751919248131d15a5f9c5301819bbc2455cb26c25d2a0b026b1e16",
+      "category": "overall_results"
+    },
+    {
+      "filename": "55th-snag-seniors-2025-results-day-6-heats.pdf",
+      "sha256": "0b9e75d2c14c9471a4f04dbd5c8741c304ec726c2b4b3e147f296bf60249a30c",
+      "category": "overall_results"
+    },
+    {
+      "filename": "results-based-on-ab-super-finals-on-day-6.pdf",
+      "sha256": "dc417b76fbf2c4a6a2b61b3ba715d819dd891fbd68e6418e740639e1219c6e58",
+      "category": "overall_results"
+    },
+    {
+      "filename": "day-6-finals-results-by-age-group-as-of-29-march-2025.pdf",
+      "sha256": "a290dd7b8452ebf71272b752e7abd7b7cd318e3c232cb87c42c356ee0b6a9cf9",
+      "category": "overall_results"
+    }
+  ],
+  "rules": [
+    {
+      "id": "exclude-senior-reprint-1",
+      "source_sha256": "103a008781304bd3cbbe2b8793e9e62e69f54bcf13fe5d6ad363ff50e5148e43",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "105"
+      },
+      "expected_matches": 76
+    },
+    {
+      "id": "exclude-senior-reprint-2",
+      "source_sha256": "1a7fe644b8aab7f81bba9c2b73d4728fcee9bf9f47226d67fc193c676beae183",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "206"
+      },
+      "expected_matches": 16
+    },
+    {
+      "id": "exclude-senior-reprint-3",
+      "source_sha256": "635f7b5520fa4dc4d4794d952aa9c51014d14d536c266ff58e0bdf56d613e7cf",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "505"
+      },
+      "expected_matches": 50
+    },
+    {
+      "id": "exclude-senior-reprint-4",
+      "source_sha256": "0b9e75d2c14c9471a4f04dbd5c8741c304ec726c2b4b3e147f296bf60249a30c",
+      "row_kind": "individual",
+      "action": "exclude",
+      "match": {
+        "event_number": "606"
+      },
+      "expected_matches": 65
+    },
+    {
+      "id": "include-day6-direct-event-607-relays",
+      "source_sha256": "a290dd7b8452ebf71272b752e7abd7b7cd318e3c232cb87c42c356ee0b6a9cf9",
+      "row_kind": "relay",
+      "action": "include",
+      "match": {
+        "event_number": "607"
+      },
+      "expected_matches": 21
+    },
+    {
+      "id": "exclude-day6-alternate-event-608-relays",
+      "source_sha256": "a290dd7b8452ebf71272b752e7abd7b7cd318e3c232cb87c42c356ee0b6a9cf9",
+      "row_kind": "relay",
+      "action": "exclude",
+      "match": {
+        "event_number": "608"
+      },
+      "expected_matches": 31
+    }
+  ],
+  "expected": {
+    "documents": 18,
+    "individual_results": 10876,
+    "relay_results": 315
+  }
+}

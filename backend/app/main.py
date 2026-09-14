@@ -20,7 +20,7 @@ import os
 import re
 import tempfile
 import zipfile
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -105,6 +105,72 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_ZIP_PDFS = 100
 MAX_ZIP_EXPANDED_BYTES = 250 * 1024 * 1024
 MAX_ZIP_COMPRESSION_RATIO = 200
+UPLOAD_PATHS = frozenset({"/api/upload", "/api/upload/preview"})
+
+
+class UploadBodyLimitMiddleware:
+    """Reject oversized upload request bodies before FastAPI parses multipart data."""
+
+    def __init__(self, app, max_body_bytes: int = MAX_UPLOAD_BYTES):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] not in UPLOAD_PATHS
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        for name, value in scope.get("headers", []):
+            if name.lower() != b"content-length":
+                continue
+            try:
+                content_length = int(value)
+            except ValueError:
+                break
+            if content_length > self.max_body_bytes:
+                await self._send_too_large(send)
+                return
+            break
+
+        buffered_messages = deque()
+        body_size = 0
+        while True:
+            message = await receive()
+            buffered_messages.append(message)
+
+            if message["type"] != "http.request":
+                break
+
+            body_size += len(message.get("body", b""))
+            if body_size > self.max_body_bytes:
+                await self._send_too_large(send)
+                return
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive():
+            if buffered_messages:
+                return buffered_messages.popleft()
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+    @staticmethod
+    async def _send_too_large(send):
+        body = b'{"detail":"Upload exceeds the 50 MiB limit"}'
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 @dataclass
@@ -144,6 +210,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(UploadBodyLimitMiddleware)
 
 
 @app.on_event("startup")
@@ -207,13 +274,15 @@ def _compute_result_hash(
     round_name: str | None, time: str | None, age: int | None = None,
     *, session_id: int | None = None, swim_date: datetime | None = None,
     source_event_number: str | None = None, status: str = "unknown",
+    is_exhibition: bool = False,
 ) -> str:
     """Session-aware SHA-256 identity for one source performance."""
     date_key = swim_date.date().isoformat() if swim_date is not None else ""
+    exhibition_key = "|exhibition" if is_exhibition else ""
     raw = (
         f"v4|{meet_id}|{session_id or ''}|{date_key}|{source_event_number or ''}|"
         f"{event}|{swimmer_name}|{team or ''}|{age if age is not None else ''}|"
-        f"{round_name or ''}|{time or ''}|{status}"
+        f"{round_name or ''}|{time or ''}|{status}{exhibition_key}"
     )
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -261,6 +330,7 @@ def _result_to_list_item(r: Result) -> ResultListItem:
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
+        is_exhibition=r.isExhibition,
         qualifier=r.qualifier,
         round=r.round,
         swim_date=r.swimDate,
@@ -282,6 +352,7 @@ def _result_to_brief(r: Result) -> ResultBrief:
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
+        is_exhibition=r.isExhibition,
         qualifier=r.qualifier,
         round=r.round,
         swim_date=r.swimDate,
@@ -340,6 +411,7 @@ def _result_to_combined(r: Result) -> CombinedResultItem:
         qualifier=r.qualifier,
         swimmer=_swimmer_brief(r.swimmer),
         is_guest=r.isGuest,
+        is_exhibition=r.isExhibition,
         meet=_meet_brief(r.meet),
     )
 
@@ -377,6 +449,7 @@ def _result_to_detail(r: Result) -> ResultDetail:
         dq_code=r.dqCode,
         dq_description=r.dqDescription,
         is_guest=r.isGuest,
+        is_exhibition=r.isExhibition,
         qualifier=r.qualifier,
         reaction_time=r.reactionTime,
         splits=r.splits,
@@ -423,6 +496,7 @@ def upload_preview(file: UploadFile = File(...)):
                         is_dq=pr.is_dq,
                         status=_effective_result_status(pr),
                         is_guest=pr.is_guest,
+                        is_exhibition=pr.is_exhibition,
                         qualifier=pr.qualifier,
                     ))
 
@@ -443,6 +517,7 @@ def upload_preview(file: UploadFile = File(...)):
                         is_dq=rr.is_dq,
                         status=_effective_result_status(rr),
                         is_guest=False,
+                        is_exhibition=rr.is_exhibition,
                         qualifier=None,
                     ))
 
@@ -667,7 +742,13 @@ def _effective_result_status(value) -> str:
     return "unknown"
 
 
-def _legacy_individual_evidence_matches(existing: Result, parsed_result, swim_date: datetime | None) -> bool:
+def _legacy_individual_evidence_matches(
+    existing: Result,
+    parsed_result,
+    swim_date: datetime | None,
+    *,
+    match_exhibition: bool = True,
+) -> bool:
     return (
         existing.swimmer.age == parsed_result.age
         and existing.seedTime == parsed_result.seed_time
@@ -677,10 +758,40 @@ def _legacy_individual_evidence_matches(existing: Result, parsed_result, swim_da
         and existing.dqCode == parsed_result.dq_code
         and existing.dqDescription == parsed_result.dq_description
         and existing.isGuest == parsed_result.is_guest
+        and (
+            not match_exhibition
+            or existing.isExhibition == parsed_result.is_exhibition
+        )
         and existing.qualifier == parsed_result.qualifier
         and existing.reactionTime == parsed_result.reaction_time
         and existing.splits == _splits_to_json(parsed_result.splits)
         and _legacy_swim_date_compatible(existing.swimDate, swim_date)
+    )
+
+
+def _pre_exhibition_provenance_is_coherent(
+    db: Session,
+    existing: Result,
+    raw_document: RawDocument,
+) -> bool:
+    """Only migrate the old hash when its recorded source remains trustworthy."""
+    if (
+        existing.parseJobId is None
+        or existing.ingestionRunId is None
+        or existing.parserVersion is None
+    ):
+        return False
+
+    parse_job = db.get(ParseJob, existing.parseJobId)
+    ingestion_run = db.get(IngestionRun, existing.ingestionRunId)
+    return bool(
+        parse_job is not None
+        and parse_job.rawDocumentId == raw_document.id
+        and parse_job.parserVersion == existing.parserVersion
+        and parse_job.status == "succeeded"
+        and parse_job.confidencePassed
+        and ingestion_run is not None
+        and ingestion_run.parserVersion == existing.parserVersion
     )
 
 
@@ -804,12 +915,82 @@ def _process_parsed_meet(
                 swim_date=swim_date,
                 source_event_number=event.event_number,
                 status=_effective_result_status(pr),
+                is_exhibition=pr.is_exhibition,
             )
 
             if competition_session is not None and raw_document is not None:
+                source_identity_matches = db.query(Result).filter(
+                    Result.meetId == meet.id,
+                    Result.sourceDocumentSha256 == raw_document.sha256,
+                    Result.sourceEventNumber == event.event_number,
+                    Result.event == event.event_name,
+                    Result.rawSwimmerName == pr.name,
+                    Result.rawTeamName == pr.team,
+                    Result.round == round_name,
+                    Result.time == pr.finals_time,
+                ).all()
+                if len(source_identity_matches) > 1:
+                    raise ValueError(
+                        "Multiple source-identity results matched one sourced session performance"
+                    )
+                if (
+                    source_identity_matches
+                    and source_identity_matches[0].sessionId
+                    not in (None, competition_session.id)
+                ):
+                    raise ValueError(
+                        "Sourced result session conflicts with parsed source"
+                    )
+                if (
+                    source_identity_matches
+                    and source_identity_matches[0].sessionId == competition_session.id
+                ):
+                    sourced_session_result = source_identity_matches[0]
+                    if sourced_session_result.contentHash != content_hash:
+                        pre_exhibition_hash = _compute_result_hash(
+                            meet_id=meet.id,
+                            event=event.event_name,
+                            swimmer_name=pr.name,
+                            team=pr.team,
+                            round_name=round_name,
+                            time=pr.finals_time,
+                            age=pr.age,
+                            session_id=competition_session.id,
+                            swim_date=swim_date,
+                            source_event_number=event.event_number,
+                            status=_effective_result_status(pr),
+                        )
+                        can_upgrade_exhibition = (
+                            pr.is_exhibition
+                            and not sourced_session_result.isExhibition
+                            and _pre_exhibition_provenance_is_coherent(
+                                db, sourced_session_result, raw_document
+                            )
+                            and sourced_session_result.contentHash == pre_exhibition_hash
+                            and _legacy_individual_evidence_matches(
+                                sourced_session_result,
+                                pr,
+                                swim_date,
+                                match_exhibition=False,
+                            )
+                        )
+                        if not can_upgrade_exhibition:
+                            raise ValueError(
+                                "Current sourced result evidence conflicts with parsed source"
+                            )
+                        sourced_session_result.isExhibition = True
+                        sourced_session_result.contentHash = content_hash
+                        duplicates_skipped += 1
+                        duplicates_list.append({
+                            "event": event.event_name, "name": pr.name,
+                            "team": pr.team, "round": round_name, "time": pr.finals_time,
+                        })
+                        continue
+
                 sourced_legacy = db.query(Result).filter(
                     Result.meetId == meet.id,
                     Result.sessionId.is_(None),
+                    Result.isExhibition.is_(False),
                     Result.sourceDocumentSha256 == raw_document.sha256,
                     Result.sourceEventNumber == event.event_number,
                     Result.event == event.event_name,
@@ -865,7 +1046,11 @@ def _process_parsed_meet(
                 existing = (
                     db.query(Result)
                     .join(Swimmer, Result.swimmerId == Swimmer.id)
-                    .filter(Result.contentHash == legacy_hash, age_match)
+                    .filter(
+                        Result.contentHash == legacy_hash,
+                        Result.isExhibition == pr.is_exhibition,
+                        age_match,
+                    )
                     .first()
                 )
             if existing:
@@ -903,6 +1088,7 @@ def _process_parsed_meet(
                 Result.swimDate == swim_date,
                 Result.time == pr.finals_time,
                 Result.resultStatus == _effective_result_status(pr),
+                Result.isExhibition == pr.is_exhibition,
                 Result.sourceEventNumber == event.event_number,
                 (
                     Result.sessionId == competition_session.id
@@ -930,6 +1116,7 @@ def _process_parsed_meet(
                 dqCode=pr.dq_code,
                 dqDescription=pr.dq_description,
                 isGuest=pr.is_guest,
+                isExhibition=pr.is_exhibition,
                 qualifier=pr.qualifier,
                 reactionTime=pr.reaction_time,
                 splits=_splits_to_json(pr.splits),
