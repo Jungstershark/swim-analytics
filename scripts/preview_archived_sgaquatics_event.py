@@ -15,7 +15,11 @@ CURATION_DIR = REPO_ROOT / "config" / "package-curation"
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.package_curation import load_manifest_curation_policy  # noqa: E402
-from app.package_import import parse_competition_manifest  # noqa: E402
+from app.competition_packages import (  # noqa: E402
+    CompetitionIdentity,
+    parse_document_identity_payload,
+)
+from app.package_import import _preflight_documents, parse_competition_manifest  # noqa: E402
 
 
 def confidence_percent(confidence) -> int:
@@ -34,6 +38,21 @@ def main() -> int:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--curation-policy", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Authoritative umbrella competition title, as the import will use it",
+    )
+    parser.add_argument(
+        "--identity",
+        type=Path,
+        default=None,
+        help=(
+            "JSON identity for documents whose pages print none. Supplying "
+            "--title or --identity runs the same import preflight, so the preview "
+            "fails for exactly the packages the import would fail."
+        ),
+    )
     args = parser.parse_args()
 
     manifest_path = args.manifest.resolve(strict=True)
@@ -63,6 +82,25 @@ def main() -> int:
     print(f"Source page: {manifest.get('source_page')}")
     print(f"Curation policy: {policy.package_id}")
     print(f"Canonical result files: {len(package.documents)}")
+
+    if args.title or args.identity is not None:
+        # A dry run should fail for exactly the packages the import would fail.
+        identity = (
+            CompetitionIdentity(title=args.title.strip(), source="operator")
+            if args.title and args.title.strip()
+            else None
+        )
+        document_identity = (
+            parse_document_identity_payload(
+                json.loads(args.identity.read_text(encoding="utf-8"))
+            )
+            if args.identity is not None
+            else None
+        )
+        _preflight_documents(
+            package.documents, identity=identity, document_identity=document_identity
+        )
+        print("Preflight: OK")
 
     for document in package.documents:
         parsed = document.parsed
