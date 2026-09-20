@@ -16,6 +16,9 @@ import {
   type MeetListItem,
 } from "@/lib/api";
 
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
+
 export default function ResultsPage() {
   return (
     <Suspense fallback={<div className="mx-auto min-h-screen max-w-7xl px-4 py-12 text-sm text-gray-500">Loading results...</div>}>
@@ -36,6 +39,8 @@ function ResultsContent() {
   const showDqOnly = searchParams.get("is_dq") === "true";
   const requestedPage = Number(searchParams.get("page"));
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedLimit = Number(searchParams.get("limit"));
+  const limit = PAGE_SIZES.includes(requestedLimit as (typeof PAGE_SIZES)[number]) ? requestedLimit : DEFAULT_PAGE_SIZE;
   // --- State ---
   const [results, setResults] = useState<CombinedResultItem[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -68,7 +73,7 @@ function ResultsContent() {
   const [searchInput, setSearchInput] = useState(search);
   const [eventSearchInput, setEventSearchInput] = useState(eventFilter);
   const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
-  const limit = 50;
+
 
   // Meets for dropdown
   const [meets, setMeets] = useState<MeetListItem[]>([]);
@@ -107,6 +112,15 @@ function ResultsContent() {
       owner.pendingQuery = null;
     }
   }, [observedQuery]);
+
+  useEffect(() => {
+    const rawLimit = searchParams.get("limit");
+    if (rawLimit === null || (PAGE_SIZES.includes(Number(rawLimit) as (typeof PAGE_SIZES)[number]) && rawLimit !== String(DEFAULT_PAGE_SIZE))) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("limit");
+    const query = next.toString();
+    router.replace(query ? `/results?${query}` : "/results", { scroll: false });
+  }, [router, searchParams]);
 
   useEffect(() => {
     function syncHistoryState() {
@@ -177,7 +191,7 @@ function ResultsContent() {
     return () => {
       active = false;
     };
-  }, [page, search, eventFilter, meetId, showDqOnly, rowType]);
+  }, [page, limit, search, eventFilter, meetId, showDqOnly, rowType]);
 
   function setRowType(nextRowType: "all" | "individual" | "relay") {
     updateUrl({ row_type: nextRowType });
@@ -195,9 +209,11 @@ function ResultsContent() {
   // --- Derived values ---
   const totalResults = pagination?.total ?? 0;
   const totalPages = pagination?.total_pages ?? 0;
+  const responsePage = pagination?.page ?? page;
+  const responseLimit = pagination?.limit ?? limit;
   const dqCount = results.filter((r) => r.is_dq).length;
-  const showingFrom = totalResults === 0 ? 0 : (page - 1) * limit + 1;
-  const showingTo = Math.min(page * limit, totalResults);
+  const showingFrom = totalResults === 0 ? 0 : (responsePage - 1) * responseLimit + 1;
+  const showingTo = Math.min(responsePage * responseLimit, totalResults);
 
   return (
     <div className="min-h-screen">
@@ -364,6 +380,17 @@ function ResultsContent() {
               </button>
             ))}
           </div>
+          <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-gray-600">
+            Results per page
+            <select
+              aria-label="Results per page"
+              value={limit}
+              onChange={(event) => updateUrl({ limit: event.target.value === String(DEFAULT_PAGE_SIZE) ? null : event.target.value })}
+              className="min-h-11 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 focus:border-ssa-teal focus:outline-none focus:ring-2 focus:ring-ssa-teal/20"
+            >
+              {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
         </div>
 
         {/* Results Summary */}
@@ -688,10 +715,10 @@ function ResultsContent() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => updateUrl({ page: String(Math.max(1, page - 1)) }, false)}
-                disabled={page <= 1}
+                onClick={() => updateUrl({ page: String(Math.max(1, responsePage - 1)) }, false)}
+                disabled={responsePage <= 1}
                 className={`min-h-11 px-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
-                  page <= 1
+                  responsePage <= 1
                     ? "text-gray-400 cursor-not-allowed"
                     : "text-gray-700 hover:bg-gray-50"
                 }`}
@@ -704,12 +731,12 @@ function ResultsContent() {
                 let pageNum: number;
                 if (totalPages <= 5) {
                   pageNum = i + 1;
-                } else if (page <= 3) {
+                } else if (responsePage <= 3) {
                   pageNum = i + 1;
-                } else if (page >= totalPages - 2) {
+                } else if (responsePage >= totalPages - 2) {
                   pageNum = totalPages - 4 + i;
                 } else {
-                  pageNum = page - 2 + i;
+                  pageNum = responsePage - 2 + i;
                 }
                 return (
                   <button
@@ -717,7 +744,7 @@ function ResultsContent() {
                     key={pageNum}
                     onClick={() => updateUrl({ page: String(pageNum) }, false)}
                     className={`min-h-11 min-w-11 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      pageNum === page
+                      pageNum === responsePage
                         ? "font-medium text-white bg-ssa-navy"
                         : "text-gray-700 bg-white border border-gray-200 hover:bg-gray-50"
                     }`}
@@ -729,10 +756,10 @@ function ResultsContent() {
 
               <button
                 type="button"
-                onClick={() => updateUrl({ page: String(Math.min(totalPages, page + 1)) }, false)}
-                disabled={page >= totalPages}
+                onClick={() => updateUrl({ page: String(Math.min(totalPages, responsePage + 1)) }, false)}
+                disabled={responsePage >= totalPages}
                 className={`min-h-11 px-4 py-1.5 text-sm bg-white border border-gray-200 rounded-md transition-colors ${
-                  page >= totalPages
+                  responsePage >= totalPages
                     ? "text-gray-400 cursor-not-allowed"
                     : "text-gray-700 hover:bg-gray-50"
                 }`}

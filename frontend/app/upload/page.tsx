@@ -25,6 +25,30 @@ export default function UploadPage() {
   const [progress, setProgress] = useState(0);
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [eventSearch, setEventSearch] = useState("");
+  // Competition identity is user-supplied: the parser only prefills these.
+  const [competitionName, setCompetitionName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const identityMissing = !competitionName.trim() || !startDate || !endDate;
+
+  // Mirrors the backend's IDENTITY_CHECKS: the checks that describe identity
+  // printed on the page. The uploader's input satisfies those; every other
+  // failing check still blocks the upload.
+  const IDENTITY_CHECKS = new Set([
+    "meet_name",
+    "meet_dates",
+    "session_metadata",
+    "positive_day_session",
+  ]);
+  const failedChecks = (preview?.confidence_checks ?? []).filter((c) => !c.passed);
+  const blockingChecks = failedChecks.filter((c) => !IDENTITY_CHECKS.has(c.name));
+  const identityCoversFailures =
+    !identityMissing && failedChecks.every((c) => IDENTITY_CHECKS.has(c.name));
+  const canConfirm =
+    preview != null &&
+    blockingChecks.length === 0 &&
+    (preview.confidence_passed || identityCoversFailures);
 
   function toggleEvent(key: string) {
     setExpandedEvents((prev) => {
@@ -67,6 +91,11 @@ export default function UploadPage() {
       const res = await previewUpload(selectedFile);
       setProgress(100);
       setPreview(res);
+      // Parsed values are placeholders: prefill the form from them, never force
+      // them, so the uploader confirms what will be stored.
+      setCompetitionName((current) => current || res.competition_name || "");
+      setStartDate((current) => current || res.start_date || "");
+      setEndDate((current) => current || res.end_date || "");
       setExpandedEvents(new Set<string>());
       setEventSearch("");
       setStep("preview");
@@ -81,6 +110,11 @@ export default function UploadPage() {
 
   async function handleConfirm() {
     if (!selectedFile) return;
+    if (identityMissing) {
+      setError("Enter the competition name and date range before uploading.");
+      setStep("preview");
+      return;
+    }
     setStep("uploading");
     setError("");
     setProgress(0);
@@ -91,7 +125,12 @@ export default function UploadPage() {
     }, estimatedMs / 45);
 
     try {
-      const res = await uploadResults(selectedFile, { replace: replaceMode });
+      const res = await uploadResults(selectedFile, {
+        replace: replaceMode,
+        competitionName: competitionName.trim(),
+        startDate,
+        endDate,
+      });
       setProgress(100);
       setResult(res);
       setStep("done");
@@ -111,6 +150,9 @@ export default function UploadPage() {
     setPreview(null);
     setResult(null);
     setError("");
+    setCompetitionName("");
+    setStartDate("");
+    setEndDate("");
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -294,15 +336,71 @@ export default function UploadPage() {
               </div>
             </div>
 
+            {/* Competition identity: supplied by the uploader, prefilled by parsing */}
+            <div className="card p-6">
+              <div className="flex items-baseline justify-between gap-4">
+                <div className="text-xs text-gray-400 uppercase">Competition identity</div>
+                {(preview.requires_competition_name || preview.requires_dates) && (
+                  <div className="text-xs font-medium text-amber-600">
+                    This document does not print{" "}
+                    {preview.requires_competition_name && preview.requires_dates
+                      ? "a name or dates"
+                      : preview.requires_competition_name
+                      ? "a name"
+                      : "dates"}{" "}
+                    — please confirm them
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3 mt-4">
+                <label className="block">
+                  <span className="text-xs text-gray-400">Competition name</span>
+                  <input
+                    type="text"
+                    value={competitionName}
+                    onChange={(e) => setCompetitionName(e.target.value)}
+                    placeholder="e.g. 56th SNAG Seniors"
+                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-ssa-navy"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-gray-400">Start date</span>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-ssa-navy"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs text-gray-400">End date</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm text-ssa-navy"
+                  />
+                </label>
+              </div>
+              {identityMissing && (
+                <div className="mt-3 text-xs text-gray-500">
+                  Name, start date and end date are required before this upload can be
+                  confirmed.
+                </div>
+              )}
+            </div>
+
             {/* Summary stats */}
             <div className="card p-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
                 <div>
-                  <div className="text-xs text-gray-400 uppercase">Meet</div>
-                  <div className="text-sm font-semibold text-ssa-navy mt-1">{preview.meet_name}</div>
-                  {preview.meet_dates && (
-                    <div className="text-xs text-gray-400 mt-0.5">{preview.meet_dates}</div>
-                  )}
+                  <div className="text-xs text-gray-400 uppercase">Competition</div>
+                  <div className="text-sm font-semibold text-ssa-navy mt-1">
+                    {competitionName.trim() || "— not set —"}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {startDate && endDate ? `${startDate} to ${endDate}` : "dates not set"}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-gray-400 uppercase">Events</div>
@@ -450,9 +548,9 @@ export default function UploadPage() {
                 </button>
                 <button
                   onClick={handleConfirm}
-                  disabled={!preview.confidence_passed}
+                  disabled={!canConfirm}
                   className={`flex-1 py-3 px-4 rounded-lg font-medium text-sm transition-colors duration-200 ${
-                    !preview.confidence_passed
+                    !canConfirm
                       ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                       : "btn-primary justify-center"
                   }`}

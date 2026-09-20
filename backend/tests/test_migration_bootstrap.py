@@ -165,3 +165,61 @@ def test_individual_exhibition_migration_backfills_and_downgrades(tmp_path: Path
     assert "isExhibition" not in {
         item["name"] for item in inspect(engine).get_columns("Result")
     }
+
+
+def test_optional_numbering_migration_downgrades_with_distinct_backfill(tmp_path: Path):
+    """Every unnumbered row must get its *own* provisional number.
+
+    A single correlated UPDATE would hand the same value to all NULL sessions in
+    a day and then trip the partial unique index that is still in place when the
+    downgrade runs.
+    """
+    database_path = tmp_path / "unnumbered.db"
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite:///{database_path}"
+
+    def alembic(*args: str) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", "backend/alembic.ini", *args],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    alembic("upgrade", "head")
+    engine = create_engine(env["DATABASE_URL"])
+    with engine.begin() as connection:
+        connection.execute(text(
+            'INSERT INTO "CompetitionDay" '
+            '("competitionSegmentId", "dayNumber", "date", "resolutionStatus", '
+            '"resolverVersion", "resolvedAt") '
+            "VALUES (1, NULL, '2026-06-01', 'derived', 'v1', '2026-06-03')"
+        ))
+        for sha in ("a", "b", "c"):
+            connection.execute(text(
+                'INSERT INTO "CompetitionSession" '
+                '("competitionDayId", "sessionNumber", "sourceDocumentSha", '
+                '"resolutionStatus", "resolverVersion", "resolvedAt") '
+                f"VALUES (1, NULL, '{sha * 64}', 'derived', 'v1', '2026-06-03')"
+            ))
+
+    alembic("downgrade", "07b8c9d0e1f2")
+    with engine.connect() as connection:
+        session_numbers = connection.execute(
+            text('SELECT "sessionNumber" FROM "CompetitionSession" ORDER BY id')
+        ).scalars().all()
+        assert sorted(session_numbers) == [1, 2, 3]
+        day_numbers = connection.execute(
+            text('SELECT "dayNumber" FROM "CompetitionDay" ORDER BY id')
+        ).scalars().all()
+        assert day_numbers == [1]
+
+    alembic("upgrade", "head")
+    session_columns = {
+        column["name"] for column in inspect(engine).get_columns("CompetitionSession")
+    }
+    assert {"sourceDocumentSha", "sourceEvidenceKey"} <= session_columns

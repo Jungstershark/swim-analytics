@@ -22,11 +22,11 @@ import tempfile
 import zipfile
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -54,7 +54,14 @@ from .ingestion import (
 )
 from .models import CompetitionSession, IngestionRun, Meet, MonitorRun, ParseJob, RawDocument, RelayLeg, RelayResult, Result, SourceEvent, SourceRule, SourceSite, Swimmer
 from .parsers.base import detect_and_parse
-from .parsers.hytek import ConfidenceReport, ParsedMeet, parse_hytek_pdf, time_to_seconds
+from .parsers.hytek import (
+    CRITICAL_CHECKS,
+    IDENTITY_CHECKS,
+    ConfidenceReport,
+    ParsedMeet,
+    parse_hytek_pdf,
+    time_to_seconds,
+)
 from .source_monitoring import (
     SourceMonitorAlreadyRunningError,
     SourceRuleDisabledError,
@@ -99,7 +106,7 @@ from .schemas import (
 # App setup
 # ---------------------------------------------------------------------------
 
-PARSER_VERSION = "hytek-v2"
+PARSER_VERSION = "hytek-v3"
 RAW_ARCHIVE_ROOT = Path(os.getenv("SWIM_RAW_ARCHIVE_ROOT", "data/raw-documents"))
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_ZIP_PDFS = 100
@@ -287,25 +294,116 @@ def _compute_result_hash(
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _resolve_legacy_upload_dates(parsed) -> tuple[datetime, datetime, datetime | None]:
-    """Map typed parser dates into the legacy Meet/Result compatibility layer."""
-    if parsed.start_date is None or parsed.end_date is None:
-        raise ValueError("A valid segment date range is required")
+@dataclass(frozen=True)
+class UploadIdentity:
+    """Identity supplied by the person performing an interactive upload.
+
+    Parsing only prefills these fields: on this path the human is the authority,
+    so their value is stored even when the page prints a different one. A field
+    that neither side fills is refused rather than invented.
+    """
+
+    competition_name: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+def _parse_optional_iso_date(value: object, label: str) -> date | None:
+    """Return the ISO date, or None when nothing was supplied.
+
+    Non-string values (an unset FastAPI ``Form`` default when the endpoint is
+    called directly in tests) count as not supplied.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"{label} must be an ISO date (YYYY-MM-DD)"
+        ) from exc
+
+
+def _upload_identity(
+    competition_name: object,
+    start_date: object,
+    end_date: object,
+) -> UploadIdentity:
+    supplied_name = competition_name if isinstance(competition_name, str) else None
+    identity = UploadIdentity(
+        competition_name=(supplied_name or "").strip() or None,
+        start_date=_parse_optional_iso_date(start_date, "start_date"),
+        end_date=_parse_optional_iso_date(end_date, "end_date"),
+    )
+    if (
+        identity.start_date is not None
+        and identity.end_date is not None
+        and identity.end_date < identity.start_date
+    ):
+        raise HTTPException(status_code=422, detail="end_date is before start_date")
+    return identity
+
+
+class DatesUnresolved(ValueError):
+    """Competition dates are simply not known yet - a caller can still supply them.
+
+    Distinct from a contradiction (printed dates that disagree with a supplied
+    range, or a reversed range): that is always an error. Only "nobody knows the
+    dates yet" may be tolerated by the preview.
+    """
+
+
+def _resolve_legacy_upload_dates(
+    parsed, identity: UploadIdentity | None = None
+) -> tuple[datetime, datetime, datetime | None]:
+    """Map typed parser dates into the legacy Meet/Result compatibility layer.
+
+    Without an uploader-supplied range the parser is the only evidence and the
+    original resolution applies unchanged. When the uploader did supply a range,
+    that range is authoritative and only the per-day offset comes from the sheet.
+    """
     if parsed.metadata_conflicts:
         raise ValueError("Competition metadata is conflicting")
 
-    meet_start = datetime.combine(parsed.start_date, datetime.min.time())
-    meet_end = datetime.combine(parsed.end_date, datetime.min.time())
-    resolution = resolve_session_metadata(parsed)
-    if resolution.status == "conflicting":
-        raise ValueError("; ".join(resolution.diagnostics))
+    supplied_start = identity.start_date if identity else None
+    supplied_end = identity.end_date if identity else None
+    if supplied_start is None and supplied_end is None:
+        if parsed.start_date is None or parsed.end_date is None:
+            raise DatesUnresolved("A valid segment date range is required")
 
-    if resolution.race_date is not None:
-        swim_date = datetime.combine(resolution.race_date, datetime.min.time())
-    elif parsed.start_date == parsed.end_date:
-        swim_date = meet_start
+        meet_start = datetime.combine(parsed.start_date, datetime.min.time())
+        meet_end = datetime.combine(parsed.end_date, datetime.min.time())
+        resolution = resolve_session_metadata(parsed)
+        if resolution.status == "conflicting":
+            raise ValueError("; ".join(resolution.diagnostics))
+
+        if resolution.race_date is not None:
+            swim_date = datetime.combine(resolution.race_date, datetime.min.time())
+        elif parsed.start_date == parsed.end_date:
+            swim_date = meet_start
+        else:
+            swim_date = None
+        return meet_start, meet_end, swim_date
+
+    start = supplied_start or parsed.start_date
+    end = supplied_end or parsed.end_date
+    if start is None or end is None:
+        raise ValueError("A competition date range is required")
+    if end < start:
+        raise ValueError("The competition end date is before its start date")
+
+    meet_start = datetime.combine(start, datetime.min.time())
+    meet_end = datetime.combine(end, datetime.min.time())
+    day_number = parsed.day_number
+    if day_number and day_number > 0:
+        race_date = start + timedelta(days=day_number - 1)
+        swim_date = (
+            datetime.combine(race_date, datetime.min.time())
+            if race_date <= end
+            else None
+        )
     else:
-        swim_date = None
+        swim_date = meet_start if start == end else None
     return meet_start, meet_end, swim_date
 
 
@@ -465,15 +563,28 @@ def _result_to_detail(r: Result) -> ResultDetail:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/upload/preview", response_model=UploadPreviewResponse)
-def upload_preview(file: UploadFile = File(...)):
-    """Parse PDF/ZIP and return preview without inserting to DB or archival tables."""
+def upload_preview(
+    file: UploadFile = File(...),
+    competition_name: str | None = Form(None),
+    start_date: str | None = Form(None),
+    end_date: str | None = Form(None),
+):
+    """Parse PDF/ZIP and return preview without inserting to DB or archival tables.
+
+    The uploader may supply the competition name and date range; when they do,
+    the preview reflects what will actually be imported, and the parsed values
+    are only the placeholder that prefilled their form.
+    """
+    # Validate supplied identity before touching the filesystem: a bad date must
+    # not leave extracted temp files behind.
+    identity = _upload_identity(competition_name, start_date, end_date)
     uploaded_pdfs = _extract_pdfs_from_upload(file)
 
     event_groups: list[PreviewEventGroup] = []
     total_results = 0
     all_swimmers: set[str] = set()
     try:
-        prepared, _skipped = _prepare_upload_bundle(uploaded_pdfs)
+        prepared, _skipped = _prepare_upload_bundle(uploaded_pdfs, identity, preview=True)
         for item in prepared:
             parsed = item.parsed
 
@@ -561,6 +672,26 @@ def upload_preview(file: UploadFile = File(...)):
         results_count=total_results,
         swimmers_count=len(all_swimmers),
         events=event_groups,
+        competition_name=identity.competition_name or first.parsed.meet_name or None,
+        start_date=(
+            identity.start_date.isoformat()
+            if identity.start_date
+            else (first.parsed.start_date.isoformat() if first.parsed.start_date else None)
+        ),
+        end_date=(
+            identity.end_date.isoformat()
+            if identity.end_date
+            else (first.parsed.end_date.isoformat() if first.parsed.end_date else None)
+        ),
+        requires_competition_name=not (
+            identity.competition_name or any(item.parsed.meet_name for item in prepared)
+        ),
+        requires_dates=not (
+            (identity.start_date and identity.end_date)
+            or any(
+                item.parsed.start_date and item.parsed.end_date for item in prepared
+            )
+        ),
     )
 
 
@@ -642,12 +773,24 @@ def _extract_pdfs_from_upload(file: UploadFile) -> list[UploadedPdf]:
 
 def _prepare_upload_bundle(
     uploaded_pdfs: list[UploadedPdf],
+    identity: UploadIdentity | None = None,
+    *,
+    preview: bool = False,
 ) -> tuple[list[PreparedUploadPdf], list[str]]:
-    """Parse and validate the entire upload before any database/archive mutation."""
+    """Parse and validate the entire upload before any database/archive mutation.
+
+    ``identity`` carries the uploader's competition name and date range. It is
+    what lets a sheet that prints no identity be imported: checks that only
+    describe printed identity are satisfied by the uploader, while every other
+    critical check still has to hold.
+    """
     prepared: list[PreparedUploadPdf] = []
     skipped: list[str] = []
     failures: list[str] = []
 
+    required_checks = (
+        CRITICAL_CHECKS - IDENTITY_CHECKS if identity is not None else CRITICAL_CHECKS
+    )
     for uploaded in uploaded_pdfs:
         category = classify_document(uploaded.filename)
         if not is_import_eligible_document(category):
@@ -658,12 +801,13 @@ def _prepare_upload_bundle(
         except Exception as exc:
             failures.append(f"{uploaded.filename}: parse failed ({exc})")
             continue
-        if not confidence.passed:
-            failed_checks = ", ".join(
-                name for name, passed in confidence.checks.items() if not passed
-            )
+        failed_checks = {name for name, passed in confidence.checks.items() if not passed}
+        if (failed_checks & required_checks) or confidence.score < 0.6 or (
+            identity is None and not confidence.passed
+        ):
             failures.append(
-                f"{uploaded.filename}: confidence checks failed ({failed_checks})"
+                f"{uploaded.filename}: confidence checks failed "
+                f"({', '.join(sorted(failed_checks))})"
             )
             continue
         resolution = resolve_session_metadata(parsed)
@@ -674,8 +818,18 @@ def _prepare_upload_bundle(
             )
             continue
         try:
-            meet_start, meet_end, swim_date = _resolve_legacy_upload_dates(parsed)
+            meet_start, meet_end, swim_date = _resolve_legacy_upload_dates(
+                parsed, identity
+            )
+        except DatesUnresolved as exc:
+            if not preview:
+                failures.append(f"{uploaded.filename}: date resolution failed ({exc})")
+                continue
+            # A preview must be able to show that the page is silent and the user
+            # still has to supply the dates; the import itself keeps requiring them.
+            meet_start = meet_end = swim_date = None
         except ValueError as exc:
+            # A contradiction or a reversed range is an error in preview too.
             failures.append(f"{uploaded.filename}: date resolution failed ({exc})")
             continue
         prepared.append(
@@ -703,7 +857,11 @@ def _prepare_upload_bundle(
 
     identities = {
         (
-            item.parsed.meet_name.strip().casefold(),
+            (
+                identity.competition_name.strip().casefold()
+                if identity and identity.competition_name
+                else item.parsed.meet_name.strip().casefold()
+            ),
             item.meet_start,
             item.meet_end,
         )
@@ -711,7 +869,8 @@ def _prepare_upload_bundle(
     }
     if len(identities) != 1:
         labels = sorted(
-            f"{item.parsed.meet_name} ({item.meet_start.date()} to "
+            f"{(identity.competition_name if identity else None) or item.parsed.meet_name} "
+            f"({item.meet_start.date() if item.meet_start else 'unknown'} to "
             f"{item.meet_end.date() if item.meet_end else 'unknown'})"
             for item in prepared
         )
@@ -1290,11 +1449,17 @@ def _process_parsed_meet(
 def upload_results(
     file: UploadFile = File(...),
     replace: bool = Query(False, description="Delete all existing results for this meet before importing"),
+    competition_name: str | None = Form(None, description="Competition name; the parsed value is only a placeholder"),
+    start_date: str | None = Form(None, description="Competition start date (YYYY-MM-DD)"),
+    end_date: str | None = Form(None, description="Competition end date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
 ):
+    # Validate supplied identity before touching the filesystem: a bad date must
+    # not leave extracted temp files behind.
+    identity = _upload_identity(competition_name, start_date, end_date)
     uploaded_pdfs = _extract_pdfs_from_upload(file)
     try:
-        prepared, preflight_warnings = _prepare_upload_bundle(uploaded_pdfs)
+        prepared, preflight_warnings = _prepare_upload_bundle(uploaded_pdfs, identity)
     except Exception:
         for uploaded_pdf in uploaded_pdfs:
             uploaded_pdf.path.unlink(missing_ok=True)
@@ -1375,14 +1540,29 @@ def upload_results(
             meet_end = item.meet_end
             swim_date = item.swim_date
 
-            parsed_identity = (parsed.meet_name, meet_start, meet_end)
+            # The uploader's name wins over the placeholder the parser read: they
+            # may be standardising it. A name neither side supplies is refused.
+            meet_name = (
+                (identity.competition_name or "") if identity else ""
+            ) or parsed.meet_name.strip()
+            if not meet_name:
+                db.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{uploaded_pdf.filename} does not print a competition name; "
+                        "enter one before uploading"
+                    ),
+                )
+
+            parsed_identity = (meet_name, meet_start, meet_end)
             if meet_identity is not None and parsed_identity != meet_identity:
                 db.rollback()
                 raise HTTPException(
                     status_code=422,
                     detail=(
                         "A single upload may contain only one competition segment; "
-                        f"found both '{meet_identity[0]}' and '{parsed.meet_name}'"
+                        f"found both '{meet_identity[0]}' and '{meet_name}'"
                     ),
                 )
 
@@ -1390,10 +1570,10 @@ def upload_results(
             if meet is None:
                 meet_identity = parsed_identity
                 meet = db.query(Meet).filter(
-                    Meet.name == parsed.meet_name, Meet.startDate == meet_start
+                    Meet.name == meet_name, Meet.startDate == meet_start
                 ).first()
                 if not meet:
-                    meet = Meet(name=parsed.meet_name, startDate=meet_start, endDate=meet_end, parserFormat=parser_format)
+                    meet = Meet(name=meet_name, startDate=meet_start, endDate=meet_end, parserFormat=parser_format)
                     db.add(meet)
                     db.flush()
                 elif meet_end and not meet.endDate:

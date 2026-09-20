@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from functools import wraps
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import pdfplumber
 
@@ -149,7 +150,12 @@ class ParsedMeet:
 #   "56th SNAG Seniors - 17/3/2026 to 22/3/2026"
 #   "11th SNSC SCM 2025 - 07-Nov-25 to 09-Nov-25"
 #   "47th SEA Age 2025 - 6/25/2025 to 6/27/2025"
-_DATE_TOKEN = r"(?:\d{1,2}/\d{1,2}/\d{4}|\d{1,2}-[A-Za-z]{3}-\d{2})"
+#   "55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025"
+_DATE_TOKEN = (
+    r"(?:\d{1,2}/\d{1,2}/\d{4}"          # 17/3/2026 (day-first) or 6/25/2025
+    r"|\d{1,2}-[A-Za-z]{3}-\d{2}"        # 07-Nov-25
+    r"|\d{1,2}\s+[A-Za-z]{3}\s+\d{4})"   # 14 Mar 2025
+)
 RE_MEET_HEADER = re.compile(
     rf"^(.+?)\s*-\s*({_DATE_TOKEN}(?:\s+to\s+{_DATE_TOKEN})?)$",
     re.IGNORECASE,
@@ -169,6 +175,15 @@ def _parse_meet_date(raw_value: str) -> date | None:
     if re.fullmatch(r"\d{1,2}-[A-Za-z]{3}-\d{2}", raw_value):
         try:
             return datetime.strptime(raw_value, "%d-%b-%y").date()
+        except ValueError:
+            return None
+
+    # Spell-out month form: "14 Mar 2025". Kept to exactly the three-letter
+    # month the printer emits so the grammar cannot absorb surrounding prose,
+    # and validated through the same calendar check as the other formats.
+    if re.fullmatch(r"\d{1,2}\s+[A-Za-z]{3}\s+\d{4}", raw_value):
+        try:
+            return datetime.strptime(raw_value, "%d %b %Y").date()
         except ValueError:
             return None
 
@@ -304,6 +319,82 @@ RE_RELAY_LEG = re.compile(
     # leg number can be consumed as part of a plausible but false age.
     r"(?:([MW])?(\d{1,2}))(?!\d?\))"   # optional gender marker + age
 )
+
+# Some immutable HY-TEK PDFs print adjacent relay-leg columns on top of each
+# other, so the page itself superimposes glyphs that belong to different legs:
+# ``W130)`` is the age token ``W10`` with the next leg's marker ``3)`` drawn over
+# it, ``M94)`` is ``M9`` + ``4)``, ``146)`` is the age ``16`` with marker ``4)``
+# drawn over it, ``W4)1`` interleaves ``W4)`` with a following digit, and
+# ``3M)9`` interleaves marker ``3)`` with age ``M9``, and some rows superimpose a
+# whole neighbouring row so digits land inside name tokens (``Elyon4) M``,
+# ``1n8i``). The characters are verifiably present at overlapping x-coordinates
+# on the same baseline in the source content stream (confirmed with pdfplumber
+# character boxes and independently with pdfminer), so the affected legs cannot
+# be recovered from the page without inventing which glyph is the age and which
+# is the marker. They are therefore quarantined, never reconstructed, and the
+# condition is reported on the relay.
+RE_RELAY_LEG_COLUMN_OVERLAP = re.compile(
+    r"(?:[MW]\d+\)"            # gender-marked age token fused with the next marker
+    r"|\d{2,}\)"               # gender-less age token fused with the next marker
+    r"|\d\)\d"                 # leg marker fused with a following digit
+    r"|\d[MW]\)\d"             # leg marker interleaved with the next age token
+    r"|[A-LN-VXYZn-vxyz]\d"    # letter fused with a digit (names carry none)
+    r"|\d[a-ln-vxyz]"          # digit fused with a following name letter
+    r"|\d\s\)\s*[MW]\b)"       # leg marker split apart by superimposed text
+)
+
+# A well-formed source row prints markers 1) to 4) once each. A missing marker
+# means the page superimposed it on neighbouring text; a repeated marker means
+# the source carries more leg fields than a single relay row can own. Neither
+# can be resolved without guessing.
+RE_RELAY_LEG_MARKER = re.compile(r"([1-4])\s?\)")
+
+
+def _relay_row_shows_column_overlap(source_lines: Sequence[str]) -> bool:
+    """True when an immutable source row shows superimposed leg columns."""
+    return any(RE_RELAY_LEG_COLUMN_OVERLAP.search(line) for line in source_lines if line)
+
+
+def _relay_leg_marker_counts(source_lines: Sequence[str]) -> Counter[int]:
+    counts: Counter[int] = Counter()
+    for line in source_lines:
+        if line:
+            counts.update(int(match) for match in RE_RELAY_LEG_MARKER.findall(line))
+    return counts
+
+
+def relay_leg_quarantine_source_reason(
+    source_lines: Sequence[str] | None, *, is_no_show: bool = False
+) -> str | None:
+    """Describe, from the immutable source rows, why legs cannot be recovered.
+
+    Returns ``None`` when the source rows themselves show no defect, in which
+    case a quarantine reason is a parser limitation rather than a source
+    condition.
+    """
+    rows = [line for line in (source_lines or []) if line]
+    if _relay_row_shows_column_overlap(rows):
+        return (
+            "source columns overlap in the immutable PDF, so fused leg fields "
+            "cannot be recovered without inventing data"
+        )
+    markers = _relay_leg_marker_counts(rows)
+    if rows and set(markers) != {1, 2, 3, 4}:
+        return (
+            "source row does not print all four leg markers, so the leg cannot "
+            "be recovered without inventing data"
+        )
+    if any(count > 1 for count in markers.values()):
+        return (
+            "source prints more leg fields than one relay row can own, so the "
+            "surplus legs cannot be attributed without inventing data"
+        )
+    if not rows and is_no_show:
+        return (
+            "source prints no relay legs for a no-show relay, so nothing is "
+            "invented to complete it"
+        )
+    return None
 
 
 def _relay_leg_name_is_structurally_valid(name: str) -> bool:
@@ -671,6 +762,11 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
     # Map event_number -> ParsedEvent (to handle continuation pages)
     event_map: dict[str, ParsedEvent] = {}
 
+    # id(ParsedRelayResult) -> its source leg rows, used to document quarantine
+    # reasons that come from the immutable PDF layout rather than from a gap in
+    # the parser.
+    relay_source_lines: dict[int, list[str]] = {}
+
     for page_text in pages_text:
         if not page_text:
             continue
@@ -836,6 +932,11 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
             if in_relay_section and current_relay:
                 leg_matches = RE_RELAY_LEG.findall(line)
                 if leg_matches:
+                    # Preserve the source rows for the quarantine report below;
+                    # relays are unhashable dataclasses, so key by identity.
+                    rows = relay_source_lines.setdefault(id(current_relay), [])
+                    if line not in rows:
+                        rows.append(line)
                     for lm in leg_matches:
                         leg_num = int(lm[0])
                         rt = lm[1] if lm[1] else None
@@ -1036,9 +1137,14 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
 
     # Quarantine relay-leg identities that PDF column overlap has corrupted.
     # The team performance remains usable, but unsafe person rows must never be
-    # promoted into the swimmer registry.
+    # promoted into the swimmer registry. Some of these relays carry source rows
+    # whose columns are printed on top of each other, or that carry more leg
+    # fields than the relay row owns (see RE_RELAY_LEG_COLUMN_OVERLAP); those are
+    # immutable-source conditions, so the legs are reported as quarantined rather
+    # than reconstructed from guesses.
     for event in events:
         for relay in event.relay_results:
+            source_lines = relay_source_lines.get(id(relay), [])
             safe_legs: list[ParsedRelayLeg] = []
             reasons: list[str] = []
             seen_numbers: set[int] = set()
@@ -1064,6 +1170,12 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
                 reasons.append(f"missing safe legs {missing}")
             relay.legs = safe_legs
             if reasons:
+                source_reason = relay_leg_quarantine_source_reason(
+                    source_lines,
+                    is_no_show=relay.status in {"ns", "dns", "dnf", "scratched"},
+                )
+                if source_reason:
+                    reasons.insert(0, source_reason)
                 relay.leg_parse_status = "partial" if safe_legs else "unavailable"
                 relay.leg_parse_warning = "; ".join(reasons)
 
@@ -1139,6 +1251,29 @@ def parse_hytek_text(pages_text: list[str]) -> tuple[ParsedMeet, ConfidenceRepor
 # Confidence scoring
 # ---------------------------------------------------------------------------
 
+# Checks whose failure blocks an import. A check outside this set stays visible
+# in the report so operators can judge quality without failing a whole package
+# (line coverage, for example, is expected to drop where a source layout forces
+# rows to be quarantined).
+CRITICAL_CHECKS = frozenset(
+    {
+        "meet_name",
+        "meet_dates",
+        "metadata_consistent",
+        "session_metadata",
+        "positive_day_session",
+        "has_events",
+        "has_results",
+        "relay_leg_integrity",
+    }
+)
+
+# Critical checks that only describe identity printed on the page. When a caller
+# supplies the competition name and date range, these are satisfied by that input
+# instead of by the sheet; every other critical check still has to hold.
+IDENTITY_CHECKS = frozenset({"meet_name", "meet_dates"})
+
+
 @dataclass
 class ConfidenceReport:
     """Result of confidence checks on parsed data."""
@@ -1150,18 +1285,8 @@ class ConfidenceReport:
 
     @property
     def passed(self) -> bool:
-        critical_checks = {
-            "meet_name",
-            "meet_dates",
-            "metadata_consistent",
-            "session_metadata",
-            "positive_day_session",
-            "has_events",
-            "has_results",
-            "relay_leg_integrity",
-        }
         return self.score >= 0.6 and all(
-            self.checks.get(name, False) for name in critical_checks
+            self.checks.get(name, False) for name in CRITICAL_CHECKS
         )
 
 

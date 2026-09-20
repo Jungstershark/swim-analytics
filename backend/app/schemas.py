@@ -290,6 +290,14 @@ class UploadPreviewResponse(BaseModel):
     results_count: int
     swimmers_count: int
     events: list[PreviewEventGroup]
+    # Identity placeholders for the upload form. Parsed values prefill the
+    # fields; the flags say when the page is silent and the user must supply
+    # the value before the upload can be accepted.
+    competition_name: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    requires_competition_name: bool = False
+    requires_dates: bool = False
 
 
 class DuplicateEntry(BaseModel):

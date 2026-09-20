@@ -192,7 +192,7 @@ test("the URL restores every results filter on load, refresh, back, and forward"
 
   const swimmerSearch = page.getByPlaceholder("Search by swimmer name...");
   const eventSearch = page.getByPlaceholder("All Events");
-  const meetFilter = page.locator("select");
+  const meetFilter = page.getByLabel("Filter by meet");
   await expect(page.getByRole("button", { name: "Individual results" })).toHaveAttribute("aria-pressed", "true");
   await expect(swimmerSearch).toHaveValue("Alice Tan");
   await expect(eventSearch).toHaveValue(event);

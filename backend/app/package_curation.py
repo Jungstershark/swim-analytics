@@ -62,6 +62,10 @@ class PackageCurationPolicy:
     status: str
     reason: str | None
     documents: tuple[CanonicalDocument, ...]
+    # Explicitly declared overlapping document pairs (as filename pairs, each
+    # sorted). A policy must name the pair it authorises; sharing a package is
+    # not by itself permission for two documents to claim the same evidence.
+    shared_evidence: tuple[tuple[str, str], ...]
     rules: tuple[RowRule, ...]
     expected_documents: int | None
     expected_individual_results: int | None
@@ -145,6 +149,7 @@ def load_package_curation(path: Path) -> PackageCurationPolicy:
             status=status,
             reason=reason,
             documents=(),
+            shared_evidence=(),
             rules=(),
             expected_documents=None,
             expected_individual_results=None,
@@ -172,6 +177,34 @@ def load_package_curation(path: Path) -> PackageCurationPolicy:
             sha256=sha,
             category=category,
         ))
+
+    raw_shared = payload.get("shared_evidence", [])
+    if not isinstance(raw_shared, list):
+        raise PackageCurationError("shared_evidence must be an array")
+    allowed_filenames = {document.filename for document in documents}
+    shared_evidence: list[tuple[str, str]] = []
+    for index, raw_pair in enumerate(raw_shared):
+        item = _require_mapping(raw_pair, f"shared_evidence[{index}]")
+        names = item.get("documents")
+        if not isinstance(names, list) or len(names) != 2:
+            raise PackageCurationError(
+                f"shared_evidence[{index}] needs exactly two document filenames"
+            )
+        first = _require_string(names[0], f"shared_evidence[{index}].documents[0]")
+        second = _require_string(names[1], f"shared_evidence[{index}].documents[1]")
+        if first == second:
+            raise PackageCurationError(
+                f"shared_evidence[{index}] names one document twice"
+            )
+        for name in (first, second):
+            if name not in allowed_filenames:
+                raise PackageCurationError(
+                    f"shared_evidence[{index}] names '{name}', which is not allowlisted"
+                )
+        pair: tuple[str, str] = (first, second) if first < second else (second, first)
+        if pair in shared_evidence:
+            raise PackageCurationError(f"duplicate shared_evidence pair: {pair}")
+        shared_evidence.append(pair)
 
     raw_rules = payload.get("rules", [])
     if not isinstance(raw_rules, list):
@@ -238,6 +271,7 @@ def load_package_curation(path: Path) -> PackageCurationPolicy:
         status=status,
         reason=reason,
         documents=tuple(documents),
+        shared_evidence=tuple(shared_evidence),
         rules=tuple(rules),
         expected_documents=expected_documents,
         expected_individual_results=_require_nonnegative_int(
@@ -445,10 +479,19 @@ def apply_package_curation(
                     if included and not excluded:
                         kept.append(row)
                 setattr(event, attribute, kept)
+        shared_evidence_group = next(
+            (
+                f"{pair[0]}\x00{pair[1]}"
+                for pair in policy.shared_evidence
+                if document.filename in pair
+            ),
+            None,
+        )
         curated_documents.append(replace(
             document,
             parsed=parsed,
             curation_policy_id=policy.package_id,
+            shared_evidence_group=shared_evidence_group,
         ))
 
     individual_results = sum(document.parsed.total_results for document in curated_documents)

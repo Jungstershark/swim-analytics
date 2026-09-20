@@ -6,7 +6,7 @@ from app.parsers.base import DetectionResult, HyTekParser, ResultParser, detect_
 
 
 def test_hytek_parser_provenance_is_v2():
-    assert HyTekParser().parser_version == "hytek-v2"
+    assert HyTekParser().parser_version == "hytek-v3"
 
 
 class FakeParser(ResultParser):

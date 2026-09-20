@@ -36,6 +36,7 @@ from app.parsers.hytek import (
     parse_event_name,
     parse_hytek_pdf,
     parse_hytek_text,
+    parse_meet_date_range,
     parse_splits_line,
     time_to_seconds,
 )
@@ -277,6 +278,90 @@ Name Age Team Seed Time Finals Time
         assert meet.start_date == date(2025, 6, 25)
         assert meet.end_date == date(2025, 6, 27)
         assert confidence.checks["meet_dates"] is True
+
+    def test_spelled_month_date_range_is_parsed(self):
+        """55th SNAG prints 'D Mon YYYY to D Mon YYYY' page headers."""
+        page = """Red Dot Aquatics HY-TEK's MEET MANAGER 8.0 - 1:39 PM 16 Mar 2025 Page 37
+55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1
+Event 107 Mixed 8-10 200 LC Meter Medley Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 2:30.54 2:23.67
+r:+0.67 37.32 1:19.39 (42.07) 2:02.82 (43.43) 2:23.67 (20.85)"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_name == "55th SNAG Juniors"
+        assert meet.meet_dates == "14 Mar 2025 to 16 Mar 2025"
+        assert meet.start_date == date(2025, 3, 14)
+        assert meet.end_date == date(2025, 3, 16)
+        assert meet.session == "Day 1 Session 1"
+        assert meet.day_number == 1
+        assert meet.session_number == 1
+        assert confidence.checks["meet_name"] is True
+        assert confidence.checks["meet_dates"] is True
+        assert confidence.passed is True
+
+    def test_single_spelled_month_date_is_parsed(self):
+        page = """Singapore Short Course Invitational 2026 - 29 Aug 2026
+Results - Day 2 Session 4
+Event 107 Women 200 SC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 1:50.00 1:47.00
+1) Sun, Youyou 12 2) r:0.33 Tan, Alice 12 3) r:0.28 Lim, Beth 12 4) r:0.08 Ong, Cara 12
+r:+0.60 25.00 52.00 (27.00) 1:19.00 (27.00) 1:47.00 (28.00)"""
+
+        meet, confidence = parse_hytek_text([page])
+
+        assert meet.meet_name == "Singapore Short Course Invitational 2026"
+        assert meet.meet_dates == "29 Aug 2026"
+        assert meet.start_date == date(2026, 8, 29)
+        assert meet.end_date == date(2026, 8, 29)
+        assert confidence.checks["meet_dates"] is True
+
+    @pytest.mark.parametrize(
+        "raw_value",
+        [
+            "14 Mar 25",          # abbreviated year stays unsupported
+            "14 March 2025",      # full month name stays unsupported
+            "14-Mar-2025",        # dashed four-digit year stays unsupported
+            "14 Mar 2025 to 12 Mar 2025",  # reversed range
+            "31 Feb 2025",        # invalid calendar day
+            "14 Mar 2025 to ",    # trailing separator is not a range
+        ],
+    )
+    def test_spelled_month_date_grammar_is_not_broadened(self, raw_value):
+        assert parse_meet_date_range(raw_value) == (None, None)
+
+    def test_repeated_spelled_month_headers_are_consistent(self):
+        first_page = """55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1
+Event 1 Mixed 8-10 200 LC Meter Medley Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 2:30.54 2:23.67
+r:+0.67 37.32 1:19.39 (42.07) 2:02.82 (43.43) 2:23.67 (20.85)"""
+        second_page = """55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1"""
+
+        meet, confidence = parse_hytek_text([first_page, second_page])
+
+        assert meet.start_date == date(2025, 3, 14)
+        assert meet.end_date == date(2025, 3, 16)
+        assert meet.metadata_conflicts == []
+        assert confidence.checks["meet_dates"] is True
+
+    def test_conflicting_spelled_month_and_slash_headers_are_held(self):
+        first_page = """55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1"""
+        second_page = """55th SNAG Juniors - 14/3/2025 to 16/3/2025
+Results - Day 1 Session 1"""
+
+        meet, confidence = parse_hytek_text([first_page, second_page])
+
+        assert meet.metadata_conflicts
+        assert meet.start_date is None
+        assert meet.end_date is None
+        assert confidence.checks["meet_dates"] is False
 
     def test_ambiguous_slash_date_remains_day_first(self):
         page = """Day First Meet - 5/6/2025
@@ -570,6 +655,67 @@ r:+0.60 25.00 52.00 (27.00) 1:19.00 (27.00) 1:47.00 (28.00)"""
         assert relay.leg_parse_warning
         assert confidence.passed is True
 
+    def test_superimposed_leg_columns_are_reported_as_a_source_condition(self):
+        """``W130)`` is ``W10`` printed under the next leg's marker ``3)``."""
+        page = """55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1
+Event 107 Mixed 8-10 200 LC Meter Medley Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 2:30.54 2:23.67
+1) Nagamochi, Renji M10 2) r:0.67 Edwards, Rebecca rae W130) r:0.22 Song, Jaedan M10 4) Hua, Clara W10
+r:+0.67 37.32 1:19.39 (42.07) 2:02.82 (43.43) 2:23.67 (20.85)"""
+
+        meet, confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+        warning = relay.leg_parse_warning or ""
+
+        assert relay.leg_parse_status == "partial"
+        assert "source columns overlap in the immutable PDF" in warning
+        assert warning.count("leg 2: implausible age 1") == 1
+        assert [leg.leg_number for leg in relay.legs] == [1, 4]
+        # The source condition is real, so completeness stays failed and no leg
+        # is invented to satisfy it.
+        assert confidence.checks["relay_leg_completeness"] is False
+        assert confidence.passed is True
+
+    def test_interleaved_leg_row_is_reported_as_a_source_condition(self):
+        """The repo's known column-overlap row keeps a source-backed warning."""
+        page = """Example Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 117 Mixed 11-12 200 LC Meter Freestyle Relay
+Team Relay Seed Time Finals Time
+1 Example Club A 2:20.00 2:17.00
+1) Ee, Emma W12 2) r:0.35 Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan Royston M11 4) r:0.27 Lim, Le Jin M12
+r:+0.56 35.91 1:11.60 (35.69) 1:44.40 (32.80) 2:17.00 (32.60)"""
+
+        meet, _confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+
+        assert relay.leg_parse_status == "partial"
+        assert "source columns overlap in the immutable PDF" in (
+            relay.leg_parse_warning or ""
+        )
+
+    def test_no_show_relay_is_reported_as_a_source_condition_not_a_parser_gap(self):
+        """A no-show relay is printed with no leg row at all in the source."""
+        page = """55th SNAG Juniors - 14 Mar 2025 to 16 Mar 2025
+Results - Day 1 Session 1
+Event 107 Mixed 8-10 200 LC Meter Medley Relay
+Team Relay Seed Time Finals Time
+--- AquaTech Swimming B NT NS"""
+
+        meet, confidence = parse_hytek_text([page])
+        relay = meet.events[0].relay_results[0]
+
+        assert relay.status == "ns"
+        assert relay.legs == []
+        assert relay.leg_parse_status == "unavailable"
+        assert "source prints no relay legs for a no-show relay" in (
+            relay.leg_parse_warning or ""
+        )
+        assert confidence.checks["relay_leg_completeness"] is False
+        assert confidence.passed is True
+
     @pytest.mark.parametrize(
         ("source_value", "expected_status"),
         [
@@ -824,6 +970,157 @@ def test_snsc20_day2_no_age_layout_uses_coordinate_columns_safely():
     assert not any(result.name == "Midsayap Pirates Team" and result.age == 7 for result in results)
     assert not any(result.name == "Kate Ona" for result in results)
     assert any("Kate Ona" in line and "missing outcome" in line for line in confidence.unmatched_lines)
+
+
+# ===========================================================================
+# Source-backed relay column overlap (immutable source condition, not a parser
+# gap): the PDF prints adjacent leg columns on top of each other.
+# ===========================================================================
+
+SNAG55_JUNIORS_J1_PATH = (
+    REPO_ROOT
+    / "raw-data/sg-aquatics/events/55th-snag-2025/overall_results"
+    / "55th-snag-juniors-results-j1-day-1-session-1-16-march-2025.pdf"
+)
+
+
+@pytest.mark.parametrize(
+    ("source_lines", "expected_phrase"),
+    [
+        # Observed superimposed rows in 55th SNAG Juniors Day 1 Session 1.
+        (
+            [
+                "1) Nagamochi, Renji M10 2) r:0.67 Edwards, Rebecca rae W130) "
+                "r:0.22 Song, Jaedan M10 4) Hua, Clara W10"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        (
+            [
+                "1) Loh Xing, Jamiel Raiyan M10 2) r:0.33 Chua, Hao Xiang M10 "
+                "3) r:0.29 Lam, Mikayla Joan Xin Ya W4)1 G0u, Jia Yu W10"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        (
+            [
+                "1) Lau Xuan Zhi, Elijah M10 2) Suang Keng, Lim W9 "
+                "3) r:0.10 Tan Zong Xian, George M94) Dai, Qixuan W9"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        (
+            [
+                "1) Ng, Garrett Jun Chang M9 2) r:0.08 Schlager, Leon Alexander "
+                "3M)9 r:0.04 Joshua, Kiara W10 4) r:0.33 Lau, Wan Xuan Celine W10"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        # Gender-less age token with the next marker drawn over it: `146)` is
+        # age `16` plus marker `4)`.
+        (
+            [
+                "1) Loh Jing, Jairus Kaiser 16 2) r:0.34 Tan, Benjamin 17 "
+                "3) r:0.50 Lim, Zhe Quan Lawrence 146) r:0.13 Teo, Bo Xuan 17"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        # Whole-row superimposition: glyphs of another row land inside names.
+        (
+            [
+                "1) *Septionus, Samuel Maxson 17 2) *Andoko, Liquor Harrison 18 "
+                "3) *Ganesha Damanik, Jeremy Elyon4) M *Fasattehro 1n8i, Erick Ahmad 25"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        # Digits fused inside name tokens: the row is superimposed text.
+        (
+            [
+                "1) *Widjaja, Stephen Gerald M12 2) r:0.51 *Afandi, Nabhan "
+                "Aldebara3n) Mr:102.32 *Mulyadi, Hayuningtyas E4lo)k r :W0.1620 "
+                "*Hariyanto, Jane Audrey W11"
+            ],
+            "source columns overlap in the immutable PDF",
+        ),
+        # The printed row stops at marker 3): the fourth leg never printed.
+        (
+            [
+                "1) Cortes, Frank Sebastian 17 2) r:0.34 Sison, Brendan 17 "
+                "3) r:0.40 Ramirez, Santiago Emma Titus 14"
+            ],
+            "source row does not print all four leg markers",
+        ),
+        # The source prints a second leg row that no relay row introduces.
+        (
+            [
+                "1) Yang, Francesca, Wenxian W21 2) Goh, Yu Heng Ashton M19 "
+                "3) Lim, Jun Feng Keagan M20 4) Wu, Yujia Eugenia W20",
+                "1) Tan, Ella Grace W15 2) Yeo, Tze Wei Andrew M15 "
+                "3) Ung, Luke M15 4) David, Callie-Ann Sim S W14",
+            ],
+            "source prints more leg fields than one relay row can own",
+        ),
+        # A clean, complete source row carries no source defect at all.
+        (
+            [
+                "1) Ee, Emma W12 2) r:0.33 Tan, Alice 12 3) r:0.28 Lim, Beth 12 "
+                "4) r:0.08 Ong, Cara 12"
+            ],
+            None,
+        ),
+        ([""], None),
+        (None, None),
+    ],
+)
+def test_relay_quarantine_source_reason_only_reports_source_evidence(
+    source_lines, expected_phrase
+):
+    reason = hytek_parser.relay_leg_quarantine_source_reason(source_lines)
+
+    if expected_phrase is None:
+        assert reason is None
+    else:
+        assert reason is not None
+        assert expected_phrase in reason
+
+
+@pytest.mark.skipif(
+    not SNAG55_JUNIORS_J1_PATH.exists(), reason="Archived 55th SNAG PDF not found"
+)
+def test_snag55_juniors_superimposed_relay_legs_stay_quarantined():
+    meet, confidence = parse_hytek_pdf(SNAG55_JUNIORS_J1_PATH)
+
+    # The header date grammar resolves the D Mon YYYY range on this source.
+    assert meet.meet_name == "55th SNAG Juniors"
+    assert meet.meet_dates == "14 Mar 2025 to 16 Mar 2025"
+    assert meet.start_date == date(2025, 3, 14)
+    assert meet.end_date == date(2025, 3, 16)
+    assert (meet.day_number, meet.session_number) == (1, 1)
+    assert confidence.checks["meet_name"] is True
+    assert confidence.checks["meet_dates"] is True
+    assert confidence.passed is True
+
+    relays = [relay for event in meet.events for relay in event.relay_results]
+    quarantined = [relay for relay in relays if relay.leg_parse_status != "complete"]
+
+    assert quarantined, "source overlap condition vanished; re-verify the immutable PDF"
+    for relay in quarantined:
+        warning = relay.leg_parse_warning or ""
+        assert relay.leg_parse_status in {"partial", "unavailable"}
+        assert (
+            "source columns overlap in the immutable PDF" in warning
+            or "source row does not print all four leg markers" in warning
+            or "source prints no relay legs for a no-show relay" in warning
+        ), warning
+        assert all(leg.leg_number in {1, 2, 3, 4} for leg in relay.legs)
+        assert all(5 <= leg.age <= 100 for leg in relay.legs if leg.age is not None)
+        assert all(
+            leg.name and not any(char.isdigit() for char in leg.name) for leg in relay.legs
+        )
+
+    # Genuine source incompleteness: the check stays failed and the parser never
+    # invents the missing legs to make it pass.
+    assert confidence.checks["relay_leg_completeness"] is False
 
 
 # ===========================================================================

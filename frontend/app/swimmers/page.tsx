@@ -9,7 +9,8 @@ import {
   type PaginationInfo,
 } from "@/lib/api";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
 type SwimmerSort = "name" | "team" | "result_count" | "latest_meet";
 type SortOrder = "asc" | "desc";
 
@@ -29,6 +30,8 @@ function SwimmersContent() {
   const showWarningsOnly = searchParams.get("has_warnings") === "true";
   const requestedPage = Number(searchParams.get("page") || "1");
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
+  const requestedLimit = Number(searchParams.get("limit"));
+  const limit = PAGE_SIZES.includes(requestedLimit as (typeof PAGE_SIZES)[number]) ? requestedLimit : DEFAULT_PAGE_SIZE;
   const requestedSort = searchParams.get("sort");
   const sort: SwimmerSort =
     requestedSort === "team" || requestedSort === "result_count" || requestedSort === "latest_meet"
@@ -63,6 +66,15 @@ function SwimmersContent() {
   }, [observedQuery]);
 
   useEffect(() => {
+    const rawLimit = searchParams.get("limit");
+    if (rawLimit === null || (PAGE_SIZES.includes(Number(rawLimit) as (typeof PAGE_SIZES)[number]) && rawLimit !== String(DEFAULT_PAGE_SIZE))) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("limit");
+    const query = next.toString();
+    router.replace(`/swimmers${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  useEffect(() => {
     function syncHistoryState() {
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
@@ -92,7 +104,7 @@ function SwimmersContent() {
       try {
         const response = await listBrowserSwimmers({
           page,
-          limit: PAGE_SIZE,
+          limit,
           q: q || undefined,
           team: team || undefined,
           has_warnings: showWarningsOnly ? true : undefined,
@@ -113,7 +125,7 @@ function SwimmersContent() {
     }
 
     fetchSwimmers();
-  }, [page, q, team, showWarningsOnly, sort, order]);
+  }, [page, limit, q, team, showWarningsOnly, sort, order]);
 
   useEffect(() => () => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -145,8 +157,10 @@ function SwimmersContent() {
 
   const totalResults = pagination?.total ?? 0;
   const totalPages = pagination?.total_pages ?? 0;
-  const showingFrom = totalResults === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const showingTo = Math.min(page * PAGE_SIZE, totalResults);
+  const responsePage = pagination?.page ?? page;
+  const responseLimit = pagination?.limit ?? limit;
+  const showingFrom = totalResults === 0 ? 0 : (responsePage - 1) * responseLimit + 1;
+  const showingTo = Math.min(responsePage * responseLimit, totalResults);
 
   return (
     <div className="min-h-screen min-w-0">
@@ -166,7 +180,7 @@ function SwimmersContent() {
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="card mb-6 p-4">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,260px)_180px_160px_auto]">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,260px)_180px_160px_150px_auto]">
             <input
               type="search"
               aria-label="Search swimmers by name"
@@ -208,6 +222,14 @@ function SwimmersContent() {
             >
               <option value="asc">Ascending</option>
               <option value="desc">Descending</option>
+            </select>
+            <select
+              aria-label="Swimmers per page"
+              value={limit}
+              onChange={(event) => update({ limit: event.target.value === String(DEFAULT_PAGE_SIZE) ? null : event.target.value, page: null })}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-ssa-slate focus:border-ssa-teal focus:outline-none focus:ring-2 focus:ring-ssa-teal/20"
+            >
+              {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} per page</option>)}
             </select>
             <button
               type="button"
@@ -278,17 +300,17 @@ function SwimmersContent() {
           <nav aria-label="Swimmer catalogue pages" className="mt-6 flex items-center justify-between gap-4 text-sm">
             <button
               type="button"
-              onClick={() => update({ page: Math.max(1, page - 1) })}
-              disabled={page <= 1}
+              onClick={() => update({ page: Math.max(1, responsePage - 1) })}
+              disabled={responsePage <= 1}
               className="min-h-11 rounded-md border border-gray-200 bg-white px-4 disabled:cursor-not-allowed disabled:text-gray-400 hover:bg-gray-50"
             >
               Previous
             </button>
-            <span className="text-center text-gray-500">Page {page} of {totalPages}</span>
+            <span className="text-center text-gray-500">Page {responsePage} of {totalPages}</span>
             <button
               type="button"
-              onClick={() => update({ page: Math.min(totalPages, page + 1) })}
-              disabled={page >= totalPages}
+              onClick={() => update({ page: Math.min(totalPages, responsePage + 1) })}
+              disabled={responsePage >= totalPages}
               className="min-h-11 rounded-md border border-gray-200 bg-white px-4 disabled:cursor-not-allowed disabled:text-gray-400 hover:bg-gray-50"
             >
               Next

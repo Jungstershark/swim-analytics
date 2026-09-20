@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { listBrowserMeets, type BrowserMeetListItem, type PaginationInfo } from "@/lib/api";
 
-const PAGE_SIZE = 24;
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
 
 type MeetSort = "date" | "name";
 type SortOrder = "asc" | "desc";
@@ -26,6 +27,8 @@ function MeetsContent() {
   const order: SortOrder = searchParams.get("order") === "asc" ? "asc" : "desc";
   const requestedPage = Number(searchParams.get("page") || "1");
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
+  const requestedLimit = Number(searchParams.get("limit"));
+  const limit = PAGE_SIZES.includes(requestedLimit as (typeof PAGE_SIZES)[number]) ? requestedLimit : DEFAULT_PAGE_SIZE;
 
   const [searchValue, setSearchValue] = useState(q);
   const [meets, setMeets] = useState<BrowserMeetListItem[]>([]);
@@ -33,34 +36,45 @@ function MeetsContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const latestRequestIdRef = useRef(0);
 
   useEffect(() => setSearchValue(q), [q]);
 
   useEffect(() => {
+    const rawLimit = searchParams.get("limit");
+    if (rawLimit === null || (PAGE_SIZES.includes(Number(rawLimit) as (typeof PAGE_SIZES)[number]) && rawLimit !== String(DEFAULT_PAGE_SIZE))) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("limit");
+    const query = next.toString();
+    router.replace(`/meets${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  useEffect(() => {
     let active = true;
+    const requestId = ++latestRequestIdRef.current;
 
     async function fetchMeets() {
       setLoading(true);
       setError("");
       if (retry > 0) setPagination(null);
       try {
-        const response = await listBrowserMeets({ page, limit: PAGE_SIZE, q: q || undefined, sort, order });
-        if (!active) return;
+        const response = await listBrowserMeets({ page, limit, q: q || undefined, sort, order });
+        if (!active || requestId !== latestRequestIdRef.current) return;
         setMeets(response.data);
         setPagination(response.pagination);
       } catch (cause) {
-        if (!active) return;
+        if (!active || requestId !== latestRequestIdRef.current) return;
         setMeets([]);
         setPagination(null);
         setError(cause instanceof Error ? cause.message : "Could not load meets");
       } finally {
-        if (active) setLoading(false);
+        if (active && requestId === latestRequestIdRef.current) setLoading(false);
       }
     }
 
     fetchMeets();
     return () => { active = false; };
-  }, [page, q, sort, order, retry]);
+  }, [page, limit, q, sort, order, retry]);
 
   function hrefFor(changes: Record<string, string | number | null>) {
     const next = new URLSearchParams(searchParams.toString());
@@ -78,6 +92,7 @@ function MeetsContent() {
 
   const totalPages = pagination?.total_pages ?? 0;
   const total = pagination?.total ?? 0;
+  const responsePage = pagination?.page ?? page;
 
   return (
     <div className="min-h-screen min-w-0">
@@ -96,7 +111,7 @@ function MeetsContent() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <form
           role="search"
-          className="grid gap-3 rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:grid-cols-[minmax(0,1fr)_180px_160px_auto]"
+          className="grid gap-3 rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:grid-cols-[minmax(0,1fr)_180px_160px_150px_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             update({ q: searchValue.trim() || null, page: 1 });
@@ -120,6 +135,9 @@ function MeetsContent() {
           <select aria-label="Sort direction" value={order} onChange={(event) => update({ order: event.target.value, page: 1 })} className="min-h-11 min-w-0 rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-700 focus:border-ssa-teal focus:outline-none focus:ring-2 focus:ring-ssa-teal/20">
             <option value="desc">Descending</option>
             <option value="asc">Ascending</option>
+          </select>
+          <select aria-label="Meets per page" value={limit} onChange={(event) => update({ limit: event.target.value === String(DEFAULT_PAGE_SIZE) ? null : event.target.value, page: null })} className="min-h-11 min-w-0 rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-700 focus:border-ssa-teal focus:outline-none focus:ring-2 focus:ring-ssa-teal/20">
+            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} per page</option>)}
           </select>
           <button type="submit" className="btn-primary min-h-11 justify-center">Search</button>
         </form>
@@ -152,9 +170,9 @@ function MeetsContent() {
 
         {!error && !loading && totalPages > 1 && (
           <nav aria-label="Meet catalogue pages" className="mt-7 flex items-center justify-between gap-3 text-sm">
-            <Link aria-disabled={page <= 1} tabIndex={page <= 1 ? -1 : undefined} href={hrefFor({ page: Math.max(1, page - 1) })} className={`flex min-h-11 items-center rounded-lg border px-4 font-medium ${page <= 1 ? "pointer-events-none border-gray-200 text-gray-400" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>Previous</Link>
-            <span className="text-gray-600">Page {page} of {totalPages}</span>
-            <Link aria-disabled={page >= totalPages} tabIndex={page >= totalPages ? -1 : undefined} href={hrefFor({ page: Math.min(totalPages, page + 1) })} className={`flex min-h-11 items-center rounded-lg border px-4 font-medium ${page >= totalPages ? "pointer-events-none border-gray-200 text-gray-400" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>Next</Link>
+            <Link aria-disabled={responsePage <= 1} tabIndex={responsePage <= 1 ? -1 : undefined} href={hrefFor({ page: Math.max(1, responsePage - 1) })} className={`flex min-h-11 items-center rounded-lg border px-4 font-medium ${responsePage <= 1 ? "pointer-events-none border-gray-200 text-gray-400" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>Previous</Link>
+            <span className="text-gray-600">Page {responsePage} of {totalPages}</span>
+            <Link aria-disabled={responsePage >= totalPages} tabIndex={responsePage >= totalPages ? -1 : undefined} href={hrefFor({ page: Math.min(totalPages, responsePage + 1) })} className={`flex min-h-11 items-center rounded-lg border px-4 font-medium ${responsePage >= totalPages ? "pointer-events-none border-gray-200 text-gray-400" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}>Next</Link>
           </nav>
         )}
       </main>

@@ -87,7 +87,9 @@ class HyTekParser(ResultParser):
 
     @property
     def parser_version(self) -> str:
-        return "hytek-v2"
+        # v3: relay-leg diagnostics were added to legParseWarning, so persisted
+        # warnings from v2 rows are no longer byte-comparable evidence.
+        return "hytek-v3"
 
     def can_parse(self, file_path: Path) -> bool:
         if not str(file_path).lower().endswith(".pdf"):

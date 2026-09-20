@@ -10,6 +10,8 @@ from fastapi import HTTPException, UploadFile
 from backend.app import main
 from backend.app.models import Meet, ParseJob, RawDocument, Result, Swimmer
 from backend.app.parsers.hytek import ConfidenceReport, ParsedEvent, ParsedMeet, ParsedResult
+from pathlib import Path
+
 from backend.tests.test_competition_packages import _test_session
 
 
@@ -90,6 +92,39 @@ def _install_mixed_parser(monkeypatch: pytest.MonkeyPatch) -> None:
         return parsed, _confidence(), "hytek"
 
     monkeypatch.setattr(main, "detect_and_parse", fake_detect)
+
+
+def test_preview_tolerates_missing_dates_but_import_refuses_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Preview must report "dates required" instead of failing the whole request.
+
+    A source that prints no dates and has no caller-supplied range still cannot
+    be imported - only the preview is allowed to describe the gap.
+    """
+    dateless = _parsed("56th SNAG Juniors", date(2026, 3, 13), date(2026, 3, 15))
+    dateless.start_date = None
+    dateless.end_date = None
+    dateless.meet_dates = None
+
+    monkeypatch.setattr(
+        main, "detect_and_parse", lambda path: (dateless, _confidence(), "hytek")
+    )
+
+    document = tmp_path / "dateless.pdf"
+    document.write_bytes(b"%PDF junior")
+    uploaded = main.UploadedPdf(
+        path=document, filename="dateless.pdf", file_bytes=b"%PDF junior"
+    )
+
+    prepared, _skipped = main._prepare_upload_bundle([uploaded], None, preview=True)
+    assert len(prepared) == 1
+    assert prepared[0].meet_start is None
+    assert prepared[0].meet_end is None
+
+    with pytest.raises(main.HTTPException) as error:
+        main._prepare_upload_bundle([uploaded], None)
+    assert error.value.status_code == 422
 
 
 def _install_same_segment_parser(monkeypatch: pytest.MonkeyPatch, *, reject_reparse: bool = False):

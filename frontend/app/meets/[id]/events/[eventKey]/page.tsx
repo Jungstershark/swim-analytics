@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   displayName,
   resultDisplayValue,
@@ -10,33 +10,52 @@ import {
   type BrowserEventRow,
 } from "@/lib/api";
 
+const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
+
 export default function MeetEventPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const meetId = Number(params.id);
   const eventKey = String(params.eventKey || "");
   const [detail, setDetail] = useState<BrowserEventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const latestRequestId = useRef(0);
 
-  const page = Number(searchParams.get("page") || "1");
-  const limit = Math.min(Number(searchParams.get("limit") || "50"), 200);
+  useEffect(() => {
+    const rawLimit = searchParams.get("limit");
+    if (rawLimit === null || (PAGE_SIZES.includes(Number(rawLimit) as (typeof PAGE_SIZES)[number]) && rawLimit !== String(DEFAULT_PAGE_SIZE))) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("limit");
+    const query = next.toString();
+    router.replace(`/meets/${meetId}/events/${eventKey}${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams, meetId, eventKey]);
+
+  const requestedPage = Number(searchParams.get("page"));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedLimit = Number(searchParams.get("limit"));
+  const limit = PAGE_SIZES.includes(requestedLimit as (typeof PAGE_SIZES)[number]) ? requestedLimit : DEFAULT_PAGE_SIZE;
   const round = searchParams.get("round") || undefined;
   const rowType = (searchParams.get("row_type") || "all") as "all" | "individual" | "relay";
   const order = (searchParams.get("order") || "place") as "place" | "time" | "name";
 
   const fetchEvent = useCallback(async () => {
+    const requestId = ++latestRequestId.current;
     setLoading(true);
     setError("");
     try {
       const res = await getBrowserEvent({ meet_id: meetId, event_key: eventKey, page, limit, round, row_type: rowType, order });
+      if (requestId !== latestRequestId.current) return;
       setDetail(res);
     } catch (e: any) {
+      if (requestId !== latestRequestId.current) return;
       setError(e.message || "Failed to load event");
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestId.current) setLoading(false);
     }
-  }, [meetId, eventKey, page, limit, round, rowType, order]);
+  }, [meetId, eventKey, page, limit, round, rowType, order, latestRequestId]);
 
   useEffect(() => {
     if (meetId && eventKey) fetchEvent();
@@ -44,17 +63,26 @@ export default function MeetEventPage() {
 
   const rounds = detail?.event_group?.rounds ?? [];
   const totalPages = detail?.pagination.total_pages ?? 0;
+  const responsePage = detail?.pagination.page ?? page;
 
-  function hrefFor(next: Partial<{ page: number; round: string | null; row_type: string; order: string }>) {
+  function hrefFor(next: Partial<{ page: number | null; limit: number | null; round: string | null; row_type: string; order: string }>) {
     const q = new URLSearchParams(searchParams.toString());
-    if (next.page !== undefined) q.set("page", String(next.page));
+    if (next.page !== undefined) {
+      if (next.page === null || next.page === 1) q.delete("page");
+      else q.set("page", String(next.page));
+    }
+    if (next.limit !== undefined) {
+      if (next.limit === null || next.limit === DEFAULT_PAGE_SIZE) q.delete("limit");
+      else q.set("limit", String(next.limit));
+      q.delete("page");
+    }
     if (next.round !== undefined) {
       if (next.round) q.set("round", next.round);
       else q.delete("round");
-      q.set("page", "1");
+      q.delete("page");
     }
-    if (next.row_type) { q.set("row_type", next.row_type); q.set("page", "1"); }
-    if (next.order) { q.set("order", next.order); q.set("page", "1"); }
+    if (next.row_type) { q.set("row_type", next.row_type); q.delete("page"); }
+    if (next.order) { q.set("order", next.order); q.delete("page"); }
     const qs = q.toString();
     return `/meets/${meetId}/events/${eventKey}${qs ? `?${qs}` : ""}`;
   }
@@ -103,6 +131,12 @@ export default function MeetEventPage() {
                   {(["all", "individual", "relay"] as const).map((type) => <FilterPill key={type} href={hrefFor({ row_type: type })} active={rowType === type}>{type}</FilterPill>)}
                   {(["place", "time", "name"] as const).map((o) => <FilterPill key={o} href={hrefFor({ order: o })} active={order === o}>Sort: {o}</FilterPill>)}
                 </div>
+                <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-gray-600">
+                  Results per page
+                  <select aria-label="Event results per page" value={limit} onChange={(event) => router.push(hrefFor({ limit: Number(event.target.value) }))} className="min-h-11 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm focus:border-ssa-teal focus:outline-none focus:ring-2 focus:ring-ssa-teal/20">
+                    {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
               </div>
             </div>
 
@@ -128,9 +162,9 @@ export default function MeetEventPage() {
 
             {totalPages > 1 && (
               <div className="mt-6 flex items-center justify-between text-sm">
-                <a className={`px-3 py-1.5 bg-white border border-gray-200 rounded-md ${page <= 1 ? "pointer-events-none text-gray-400" : "text-gray-700 hover:bg-gray-50"}`} href={hrefFor({ page: Math.max(1, page - 1) })}>Previous</a>
-                <span className="text-gray-500">Page {page} of {totalPages}</span>
-                <a className={`px-3 py-1.5 bg-white border border-gray-200 rounded-md ${page >= totalPages ? "pointer-events-none text-gray-400" : "text-gray-700 hover:bg-gray-50"}`} href={hrefFor({ page: Math.min(totalPages, page + 1) })}>Next</a>
+                <a className={`min-h-11 px-3 py-1.5 bg-white border border-gray-200 rounded-md ${responsePage <= 1 ? "pointer-events-none text-gray-400" : "text-gray-700 hover:bg-gray-50"}`} href={hrefFor({ page: Math.max(1, responsePage - 1) })}>Previous</a>
+                <span className="text-gray-500">Page {responsePage} of {totalPages}</span>
+                <a className={`min-h-11 px-3 py-1.5 bg-white border border-gray-200 rounded-md ${responsePage >= totalPages ? "pointer-events-none text-gray-400" : "text-gray-700 hover:bg-gray-50"}`} href={hrefFor({ page: Math.min(totalPages, responsePage + 1) })}>Next</a>
               </div>
             )}
           </>

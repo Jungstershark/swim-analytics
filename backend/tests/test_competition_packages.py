@@ -10,7 +10,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.competition_packages import resolve_session_metadata, upsert_competition_hierarchy
+from app.competition_packages import (
+    CompetitionIdentity,
+    evidence_key_for_document,
+    parse_document_identity_payload,
+    resolve_segment_identity,
+    resolve_session_metadata,
+    upsert_competition_hierarchy,
+)
 from app.database import Base
 from app.ingestion import record_parse_job, record_raw_document, start_ingestion_run
 from app.main import (
@@ -36,10 +43,12 @@ from app.parsers.hytek import (
     ParsedEvent,
     ParsedRelayLeg,
     ParsedRelayResult,
+    parse_hytek_pdf,
     parse_hytek_text,
 )
 from app.package_import import (
     ParsedCompetitionDocument,
+    _preflight_documents,
     import_parsed_competition_documents,
     parse_competition_manifest,
 )
@@ -1251,3 +1260,776 @@ def test_content_hash_has_database_uniqueness_backstop():
     db.add(Result(swimmerId=swimmer.id, meetId=meet.id, event="100 Free", contentHash="same"))
     with pytest.raises(IntegrityError):
         db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Source-backed identity gaps in canonical packages: these sources print no
+# competition identity at all, so the import preflight must fail closed instead
+# of accepting an invented segment name, date range, or day/session.
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _canonical_result_document(manifest_rel: str, filename: str) -> ParsedCompetitionDocument:
+    manifest_path = REPO_ROOT / manifest_rel
+    if not manifest_path.exists():
+        pytest.skip(f"Archived manifest not found: {manifest_path}")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record = next(
+        item
+        for item in payload["files"]
+        if item.get("category") == "overall_results" and item.get("filename") == filename
+    )
+    path = REPO_ROOT / str(record.get("filename_saved") or record["saved"])
+    if not path.exists():
+        pytest.skip(f"Archived source PDF not found: {path}")
+    content = path.read_bytes()
+    parsed, confidence = parse_hytek_pdf(path)
+    return ParsedCompetitionDocument(
+        filename=filename,
+        source_url=str(record.get("url") or "") or None,
+        content=content,
+        sha256=hashlib.sha256(content).hexdigest(),
+        parsed=parsed,
+        parser_name="hytek",
+        parser_version="hytek-v2",
+        confidence_score=confidence.score,
+        confidence_passed=confidence.passed,
+        confidence_checks=dict(confidence.checks),
+    )
+
+
+def test_headerless_canonical_source_needs_caller_supplied_identity():
+    """20th SNSC day-2 heats print no competition name/date on any page.
+
+    The page is silent, so preflight refuses the document until the caller
+    supplies the identity, then accepts that identity without rewriting it.
+    """
+    document = _canonical_result_document(
+        "raw-data/sg-aquatics/events/20th-snsc-2025/manifest.json",
+        "snsc2025-day-2-heats-results.pdf",
+    )
+
+    assert document.parsed.meet_name == ""
+    assert document.parsed.meet_dates is None
+    assert document.parsed.start_date is None
+    assert document.confidence_passed is False
+
+    # Without caller input the identity checks fail, so the import is refused.
+    with pytest.raises(ValueError, match="Parser confidence failed"):
+        _preflight_documents([document])
+
+    identity = CompetitionIdentity(
+        title="20th SNSC 2025",
+        start_date=date(2025, 5, 31),
+        end_date=date(2025, 6, 3),
+    )
+    _preflight_documents([document], identity=identity)
+
+
+def test_segment_identity_requires_a_name_from_the_page_or_the_caller():
+    """A sheet that prints no name is importable only when the caller names it."""
+    parsed, _confidence = parse_hytek_text(["""
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""])
+
+    with pytest.raises(ValueError, match="Competition name is required"):
+        resolve_segment_identity(parsed)
+
+    name, start_date, end_date, source = resolve_segment_identity(
+        parsed,
+        CompetitionIdentity(
+            title="Example Meet", start_date=date(2026, 6, 1), end_date=date(2026, 6, 2)
+        ),
+    )
+
+    assert name == "Example Meet"
+    assert (start_date, end_date) == (date(2026, 6, 1), date(2026, 6, 2))
+    assert source == "operator"
+
+
+def test_sessionless_canonical_source_imports_without_a_session_header():
+    """SAQ ETP's single report prints no `Results - Day N Session N` line.
+
+    Day/session are optional metadata, so the document passes preflight on the
+    identity it does print. Nothing invents a session header.
+    """
+    document = _canonical_result_document(
+        "raw-data/sg-aquatics/events/saq-etp-championships-2026/manifest.json",
+        "saq-etp-championships-2026-full-results.pdf",
+    )
+
+    assert document.parsed.meet_name == "SAQ Emerging Talents Championships 2026"
+    assert document.parsed.day_number is None
+    assert document.parsed.session_number is None
+
+    _preflight_documents([document])
+
+
+def test_caller_supplied_dates_must_match_a_page_that_prints_them():
+    """A supplied *segment* range that contradicts the page fails closed.
+
+    A package (umbrella) range is wider by nature, so the printed per-segment
+    range simply wins there instead of being read as a contradiction.
+    """
+    document = _canonical_result_document(
+        "raw-data/sg-aquatics/events/saq-etp-championships-2026/manifest.json",
+        "saq-etp-championships-2026-full-results.pdf",
+    )
+
+    assert document.parsed.start_date == date(2026, 5, 31)
+
+    with pytest.raises(ValueError, match="Competition dates conflict"):
+        _preflight_documents(
+            [document],
+            identity=CompetitionIdentity(
+                title="SAQ Emerging Talents Championships 2026",
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 2),
+                scope="segment",
+            ),
+        )
+
+    # The umbrella range may be wider than the printed segment range ...
+    _preflight_documents(
+        [document],
+        identity=CompetitionIdentity(
+            title="SAQ Emerging Talents Championships 2026",
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 6, 30),
+        ),
+    )
+
+    # ... but it still has to contain it.
+    with pytest.raises(ValueError, match="falls outside the supplied package range"):
+        _preflight_documents(
+            [document],
+            identity=CompetitionIdentity(
+                title="SAQ Emerging Talents Championships 2026",
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 2),
+            ),
+        )
+
+    name, start_date, end_date, source = resolve_segment_identity(
+        document.parsed,
+        CompetitionIdentity(
+            title="SAQ Emerging Talents Championships 2026",
+            start_date=date(2026, 5, 31),
+            end_date=date(2026, 5, 31),
+        ),
+    )
+
+    assert name == "SAQ Emerging Talents Championships 2026"
+    assert (start_date, end_date) == (date(2026, 5, 31), date(2026, 5, 31))
+    assert source == "printed"
+
+
+def test_sessionless_document_imports_and_stores_a_derived_session(tmp_path: Path):
+    """A sheet with no Day N Session N line must import, not just pass preflight.
+
+    Regression guard for the gap between validation and writing: the sheet's
+    NULL numbering has to survive the insert (nothing is invented to satisfy a
+    NOT NULL column) and be recorded as derived, not as a printed header.
+    """
+    db = _test_session()
+    parsed, confidence = parse_hytek_text(["""SAQ Emerging Talents Championships 2026 - 31/5/2026
+Results
+Event 1 Mixed 10 Year Olds 50 SC Meter Butterfly
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 10 Example Club 34.42 34.02"""])
+    assert parsed.day_number is None
+    assert parsed.session_number is None
+
+    content = b"%PDF-1.4\nsessionless\n%%EOF"
+    document = ParsedCompetitionDocument(
+        filename="sessionless.pdf",
+        source_url="https://example.test/sessionless.pdf",
+        content=content,
+        sha256=hashlib.sha256(content).hexdigest(),
+        parsed=parsed,
+        parser_name="hytek",
+        parser_version="hytek-v3",
+        confidence_score=confidence.score,
+        confidence_passed=confidence.passed,
+        confidence_checks=dict(confidence.checks),
+    )
+
+    summary = import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/saq-etp",
+        competition_title="SAQ Emerging Talents Championships 2026",
+        documents=[document],
+        archive_root=tmp_path / "archive",
+    )
+
+    assert summary.results_inserted == 1
+    sessions = db.query(CompetitionSession).all()
+    assert len(sessions) == 1
+    # Nothing is invented: the numbers stay NULL and the sheet is identified by
+    # its own content hash.
+    assert sessions[0].sessionNumber is None
+    assert sessions[0].sourceDocumentSha == document.sha256
+    assert sessions[0].resolutionStatus == "derived"
+    assert sessions[0].day.dayNumber is None
+    assert sessions[0].day.resolutionStatus == "derived"
+    assert db.query(Result).count() == 1
+
+    # Re-importing the same sheet must find the same session and day again.
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/saq-etp",
+        competition_title="SAQ Emerging Talents Championships 2026",
+        documents=[document],
+        archive_root=tmp_path / "archive",
+    )
+    assert db.query(CompetitionSession).count() == 1
+    assert db.query(CompetitionDay).count() == 1
+
+
+def test_identity_supplied_import_still_requires_the_other_critical_checks(tmp_path: Path):
+    """Caller identity must not paper over a missing or failed critical check."""
+    db = _test_session()
+    parsed, confidence = parse_hytek_text(["""Headerless Meet - 1/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""])
+    content = b"%PDF-1.4\nno-checks\n%%EOF"
+
+    def build(checks: dict[str, bool], *, passed: bool = True) -> ParsedCompetitionDocument:
+        return ParsedCompetitionDocument(
+            filename="no-checks.pdf",
+            source_url="https://example.test/no-checks.pdf",
+            content=content,
+            sha256=hashlib.sha256(content).hexdigest(),
+            parsed=parsed,
+            parser_name="hytek",
+            parser_version="hytek-v3",
+            confidence_score=1.0,
+            confidence_passed=passed,
+            confidence_checks=checks,
+        )
+
+    identity = CompetitionIdentity(
+        title="Headerless Meet", start_date=date(2026, 6, 1), end_date=date(2026, 6, 1)
+    )
+
+    # No named report and the parser did not pass: the import is refused.
+    with pytest.raises(ValueError, match="Parser confidence failed"):
+        _preflight_documents([build({}, passed=False)], identity=identity)
+
+    # A non-identity critical check that fails still blocks, even with identity.
+    with pytest.raises(ValueError, match="Parser confidence failed"):
+        _preflight_documents(
+            [build({**dict(confidence.checks), "relay_leg_integrity": False})],
+            identity=identity,
+        )
+
+    _preflight_documents([build(dict(confidence.checks))], identity=identity)
+
+
+def test_document_identity_payload_is_validated():
+    identity = parse_document_identity_payload({
+        "documents": [
+            {
+                "filename": "day-2-heats.pdf",
+                "segment_name": "20th SNSC 2025",
+                "start_date": "2025-05-31",
+                "end_date": "2025-06-03",
+            }
+        ]
+    })
+
+    assert set(identity) == {"day-2-heats.pdf"}
+    entry = identity["day-2-heats.pdf"]
+    assert entry.title == "20th SNSC 2025"
+    assert entry.scope == "segment"
+    assert (entry.start_date, entry.end_date) == (date(2025, 5, 31), date(2025, 6, 3))
+
+    for payload in (
+        {},
+        {"documents": []},
+        {"documents": [{"segment_name": "No filename"}]},
+        {"documents": [{"filename": "a.pdf"}]},
+        {"documents": [{"filename": "a.pdf", "segment_name": "X", "start_date": "nope"}]},
+        {"documents": [{"filename": "a.pdf", "segment_name": "X"}] * 2},
+    ):
+        with pytest.raises(ValueError):
+            parse_document_identity_payload(payload)
+
+
+def test_document_identity_supplies_identity_for_a_silent_page():
+    """The rebuild path can name a document the page does not name itself."""
+    document = _canonical_result_document(
+        "raw-data/sg-aquatics/events/20th-snsc-2025/manifest.json",
+        "snsc2025-day-2-heats-results.pdf",
+    )
+    per_document = {
+        document.filename: CompetitionIdentity(
+            title="20th SNSC 2025",
+            start_date=date(2025, 5, 31),
+            end_date=date(2025, 6, 3),
+            scope="segment",
+        )
+    }
+
+    with pytest.raises(ValueError, match="Parser confidence failed"):
+        _preflight_documents([document])
+
+    _preflight_documents([document], document_identity=per_document)
+
+    # A caller-supplied segment name that contradicts the page fails closed.
+    saq = _canonical_result_document(
+        "raw-data/sg-aquatics/events/saq-etp-championships-2026/manifest.json",
+        "saq-etp-championships-2026-full-results.pdf",
+    )
+    with pytest.raises(ValueError, match="Segment name conflict"):
+        _preflight_documents(
+            [saq],
+            document_identity={
+                saq.filename: CompetitionIdentity(
+                    title="Some Other Meet",
+                    start_date=date(2026, 5, 31),
+                    end_date=date(2026, 5, 31),
+                    scope="segment",
+                )
+            },
+        )
+
+
+def test_evidence_key_separates_rounds_and_normalises_names():
+    heats, _ = parse_hytek_text(["""Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Prelim Time
+1 Example, Athlete 20 Example Club 24.00 23.50"""])
+    finals, _ = parse_hytek_text(["""Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 2
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Prelim Time Finals Time
+1 Example, Athlete 20 Example Club 23.50 23.40"""])
+
+    heats_key = evidence_key_for_document(heats, "Example Meet")
+    finals_key = evidence_key_for_document(finals, "Example Meet")
+
+    # Heats and finals of the same day carry the same events in different rounds.
+    assert heats_key != finals_key
+    # Wording differences (case, spacing) are normalised away.
+    assert heats_key == evidence_key_for_document(heats, "  example   meet ")
+
+
+def test_import_script_exposes_document_identity_input(tmp_path: Path):
+    """The rebuild CLI takes identity for documents whose pages print none."""
+    import importlib.util
+
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "import_archived_sgaquatics_event.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "import_archived_sgaquatics_event", script
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module._load_document_identity(None) is None
+
+    identity_path = tmp_path / "identity.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "filename": "day-2-heats.pdf",
+                        "segment_name": "20th SNSC 2025",
+                        "start_date": "2025-05-31",
+                        "end_date": "2025-06-03",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    identity = module._load_document_identity(identity_path)
+    assert identity["day-2-heats.pdf"].title == "20th SNSC 2025"
+    assert identity["day-2-heats.pdf"].scope == "segment"
+
+
+def _numbered_document(
+    filename: str, parsed, sha: str | None = None
+) -> ParsedCompetitionDocument:
+    content = f"%PDF-1.4\n{filename}\n%%EOF".encode()
+    return ParsedCompetitionDocument(
+        filename=filename,
+        source_url=f"https://example.test/{filename}",
+        content=content,
+        sha256=sha or hashlib.sha256(content).hexdigest(),
+        parsed=parsed,
+        parser_name="hytek",
+        parser_version="hytek-v3",
+        confidence_score=1.0,
+        confidence_passed=True,
+        confidence_checks={},
+    )
+
+
+_HEADERLESS_ONE = """SAQ Emerging Talents Championships 2026 - 31/5/2026
+Results
+Event 1 Mixed 10 Year Olds 50 SC Meter Butterfly
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 10 Example Club 34.42 34.02"""
+
+_HEADERLESS_TWO = """SAQ Emerging Talents Championships 2026 - 31/5/2026
+Results
+Event 1 Mixed 10 Year Olds 50 SC Meter Butterfly
+Name Age Team Seed Time Finals Time
+1 Example, Athlete 10 Example Club 34.42 34.02
+Event 2 Girls 11 Year Olds 50 SC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Another, Swimmer 11 Example Club 33.00 32.50"""
+
+
+def test_two_sessionless_documents_stay_two_sessions_in_either_order(tmp_path: Path):
+    """Two sheets that print no numbering are two sessions, not one shared row.
+
+    The session of an unnumbered sheet is its document identity, so import order
+    must not change what gets stored.
+    """
+    one = _numbered_document("day-one.pdf", parse_hytek_text([_HEADERLESS_ONE])[0])
+    two = _numbered_document("day-two.pdf", parse_hytek_text([_HEADERLESS_TWO])[0])
+
+    for order in ((one, two), (two, one)):
+        db = _test_session()
+        import_parsed_competition_documents(
+            db,
+            source_key="https://example.test/saq-etp",
+            competition_title="SAQ Emerging Talents Championships 2026",
+            documents=list(order),
+            archive_root=tmp_path / "archive",
+        )
+
+        sessions = db.query(CompetitionSession).all()
+        assert len(sessions) == 2
+        assert {session.sourceDocumentSha for session in sessions} == {
+            one.sha256,
+            two.sha256,
+        }
+        assert all(session.sessionNumber is None for session in sessions)
+        assert db.query(CompetitionDay).count() == 1
+
+
+def test_dropped_document_is_withdrawn_on_rebuild(tmp_path: Path):
+    """A document removed from the package must not leave stale rows behind."""
+    db = _test_session()
+    one = _numbered_document("day-one.pdf", parse_hytek_text([_HEADERLESS_ONE])[0])
+    two = _numbered_document("day-two.pdf", parse_hytek_text([_HEADERLESS_TWO])[0])
+
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/saq-etp",
+        competition_title="SAQ Emerging Talents Championships 2026",
+        documents=[one, two],
+        archive_root=tmp_path / "archive",
+    )
+    assert db.query(CompetitionSession).count() == 2
+    assert db.query(Result).count() == 3
+
+    summary = import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/saq-etp",
+        competition_title="SAQ Emerging Talents Championships 2026",
+        documents=[one],
+        archive_root=tmp_path / "archive",
+    )
+
+    assert summary.sessions_removed == 1
+    sessions = db.query(CompetitionSession).all()
+    assert len(sessions) == 1
+    assert sessions[0].sourceDocumentSha == one.sha256
+    assert db.query(Result).count() == 1
+
+
+def test_partial_or_nonpositive_numbering_is_rejected(tmp_path: Path):
+    """Day/session are both-or-neither, and positive when present."""
+    import dataclasses
+
+    db = _test_session()
+    parsed = _parsed("Example Meet", "1/6/2026 to 2/6/2026", 1, 1)
+
+    for day_number, session_number in ((1, None), (None, 1), (0, 1), (1, 0)):
+        mutated = dataclasses.replace(
+            parsed, day_number=day_number, session_number=session_number
+        )
+        with pytest.raises(
+            ValueError, match="Partial Day/Session metadata|must be positive"
+        ):
+            upsert_competition_hierarchy(
+                db,
+                source_key="https://example.test/partial",
+                competition_title="Example Meet",
+                parsed=mutated,
+                source_document_sha="c" * 64,
+                evidence_key="d" * 64,
+            )
+        db.rollback()
+
+
+def test_upgraded_numbered_session_acquires_document_identity(tmp_path: Path):
+    """A row created before the identity columns existed must acquire them.
+
+    Otherwise every rebuild keeps depending on printed numbering instead of the
+    persisted document identity.
+    """
+    db = _test_session()
+    document = _numbered_document(
+        "numbered.pdf", _parsed("Example Meet", "1/6/2026 to 2/6/2026", 1, 1)
+    )
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/upgraded",
+        competition_title="Example Meet",
+        documents=[document],
+        archive_root=tmp_path / "archive",
+    )
+
+    session = db.query(CompetitionSession).one()
+    session.sourceDocumentSha = None
+    session.sourceEvidenceKey = None
+    db.commit()
+
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/upgraded",
+        competition_title="Example Meet",
+        documents=[document],
+        archive_root=tmp_path / "archive",
+    )
+
+    session = db.query(CompetitionSession).one()
+    assert session.sourceDocumentSha == document.sha256
+    assert session.sourceEvidenceKey is not None
+    assert db.query(CompetitionSession).count() == 1
+    assert db.query(CompetitionDay).count() == 1
+
+
+def test_changed_evidence_for_the_same_document_is_rejected(tmp_path: Path):
+    """A document whose parse output changes must not be silently rewritten."""
+    db = _test_session()
+    original = _numbered_document(
+        "changed.pdf", _parsed("Example Meet", "1/6/2026 to 2/6/2026", 1, 1)
+    )
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/changed",
+        competition_title="Example Meet",
+        documents=[original],
+        archive_root=tmp_path / "archive",
+    )
+
+    changed_parse, _confidence = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Different, Athlete 21 Other Club 25.00 24.90"""])
+    changed = _numbered_document("changed.pdf", changed_parse, sha=original.sha256)
+
+    with pytest.raises(ValueError, match="different evidence"):
+        import_parsed_competition_documents(
+            db,
+            source_key="https://example.test/changed",
+            competition_title="Example Meet",
+            documents=[changed],
+            archive_root=tmp_path / "archive",
+        )
+
+
+def test_changed_parse_of_a_second_document_feeding_a_printed_session_is_rejected(
+    tmp_path: Path,
+):
+    """A printed session fed by two curated sheets tracks each sheet's parse.
+
+    The row only stores the first document's sha, so provenance for the rest has
+    to be recorded per document - otherwise a changed parse of the second sheet
+    would slip past the change check.
+    """
+    db = _test_session()
+    first_parsed, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, One 20 Club 24.00 23.00"""])
+    second_parsed, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 2 Women 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, Two 20 Club 25.00 24.00"""])
+    first = _numbered_document("session-sheet-one.pdf", first_parsed)
+    second = _numbered_document("session-sheet-two.pdf", second_parsed)
+
+    import_parsed_competition_documents(
+        db,
+        source_key="https://example.test/shared-session",
+        competition_title="Example Meet",
+        documents=[first, second],
+        archive_root=tmp_path / "archive",
+    )
+
+    session = db.query(CompetitionSession).one()
+    assert session.sessionNumber == 1
+    index = json.loads(session.sourceDocuments)
+    assert {entry["sha"] for entry in index} == {first.sha256, second.sha256}
+
+    # A changed parse of the *second* sheet must not slip past the check.
+    changed_parsed, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 2 Women 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, Two 20 Club 25.00 23.80"""])
+    changed = _numbered_document(
+        "session-sheet-two.pdf", changed_parsed, sha=second.sha256
+    )
+
+    with pytest.raises(ValueError, match="different evidence"):
+        import_parsed_competition_documents(
+            db,
+            source_key="https://example.test/shared-session",
+            competition_title="Example Meet",
+            documents=[first, changed],
+            archive_root=tmp_path / "archive",
+        )
+
+
+def test_overlapping_documents_must_agree_about_the_same_performance():
+    """Sheets may share a race, but not disagree about how it was swum."""
+    single, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 1
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, One 20 Club 24.00 23.00"""])
+    # Different document shape (an extra event), same values for event 1.
+    agreeing, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 2
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, One 20 Club 24.00 23.00
+Event 2 Women 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, Two 20 Club 25.00 24.00"""])
+    # Same shape as `agreeing`, but a different time for the shared race.
+    disagreeing, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 1 Session 2
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, One 20 Club 24.00 22.50
+Event 2 Women 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, Two 20 Club 25.00 24.00"""])
+
+    doc_single = _numbered_document("sheet-single.pdf", single)
+
+    _preflight_documents([doc_single, _numbered_document("sheet-agree.pdf", agreeing)])
+
+    with pytest.raises(ValueError, match="different values for the same performance"):
+        _preflight_documents(
+            [doc_single, _numbered_document("sheet-disagree.pdf", disagreeing)]
+        )
+
+
+def test_rebuild_cli_forwards_document_identity(tmp_path: Path, monkeypatch):
+    """`main()` must hand --identity to the importer, not merely parse it."""
+    import importlib.util
+    import sys
+    from types import SimpleNamespace
+
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "import_archived_sgaquatics_event.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "import_archived_sgaquatics_event_main", script
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured: dict = {}
+
+    class _FakeSession:
+        def close(self) -> None:
+            pass
+
+        def rollback(self) -> None:
+            pass
+
+    monkeypatch.setattr(module, "SessionLocal", lambda: _FakeSession())
+    monkeypatch.setattr(module, "load_manifest_curation_policy", lambda *a, **k: object())
+    monkeypatch.setattr(
+        module,
+        "parse_competition_manifest",
+        lambda *a, **k: SimpleNamespace(source_key="pkg", documents=("doc",)),
+    )
+
+    def fake_import(db, **kwargs):
+        from app.package_import import CompetitionImportSummary
+
+        captured.update(kwargs)
+        return CompetitionImportSummary(
+            documents_imported=1,
+            results_inserted=0,
+            swimmers_created=0,
+            duplicates_skipped=0,
+            edition_id=7,
+        )
+
+    monkeypatch.setattr(module, "import_parsed_competition_documents", fake_import)
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    identity_path = tmp_path / "identity.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "filename": "day-2-heats.pdf",
+                        "segment_name": "20th SNSC 2025",
+                        "start_date": "2025-05-31",
+                        "end_date": "2025-06-03",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "import_archived_sgaquatics_event.py",
+            str(manifest),
+            "--title",
+            "20th SNSC 2025",
+            "--identity",
+            str(identity_path),
+        ],
+    )
+    module.main()
+
+    assert captured["document_identity"]["day-2-heats.pdf"].title == "20th SNSC 2025"
+    assert captured["document_identity"]["day-2-heats.pdf"].scope == "segment"
+    assert captured["competition_title"] == "20th SNSC 2025"

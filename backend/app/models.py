@@ -425,7 +425,7 @@ class CompetitionDay(Base):
     competitionSegmentId: Mapped[int] = mapped_column(
         Integer, ForeignKey("CompetitionSegment.id", ondelete="CASCADE"), nullable=False
     )
-    dayNumber: Mapped[int] = mapped_column(Integer, nullable=False)
+    dayNumber: Mapped[int | None] = mapped_column(Integer, nullable=True)
     date: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
     resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
     resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
@@ -439,8 +439,28 @@ class CompetitionDay(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("competitionSegmentId", "dayNumber", name="CompetitionDay_segment_day_uq"),
-        CheckConstraint('"dayNumber" > 0', name="CompetitionDay_number_ck"),
+        # Printed day numbers stay unique per segment where they exist; a sheet
+        # that prints none shares the segment's single unassigned row instead of
+        # claiming a day number it never printed.
+        Index(
+            "CompetitionDay_segment_day_uq",
+            "competitionSegmentId",
+            "dayNumber",
+            unique=True,
+            sqlite_where=text('"dayNumber" IS NOT NULL'),
+            postgresql_where=text('"dayNumber" IS NOT NULL'),
+        ),
+        Index(
+            "CompetitionDay_segment_unassigned_uq",
+            "competitionSegmentId",
+            unique=True,
+            sqlite_where=text('"dayNumber" IS NULL'),
+            postgresql_where=text('"dayNumber" IS NULL'),
+        ),
+        CheckConstraint(
+            '"dayNumber" IS NULL OR "dayNumber" > 0',
+            name="CompetitionDay_number_ck",
+        ),
         CheckConstraint(
             '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
             name="CompetitionDay_resolution_status_ck",
@@ -456,7 +476,18 @@ class CompetitionSession(Base):
     competitionDayId: Mapped[int] = mapped_column(
         Integer, ForeignKey("CompetitionDay.id", ondelete="CASCADE"), nullable=False
     )
-    sessionNumber: Mapped[int] = mapped_column(Integer, nullable=False)
+    sessionNumber: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Immutable identity of the sheet this session came from (content sha256).
+    # It is what lets an unnumbered session be found again on rebuild.
+    sourceDocumentSha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Every document that fed this session, as JSON [{sha, evidence}]. A printed
+    # session can be fed by more than one curated sheet, and each one's parse
+    # fingerprint has to be checked on rebuild - not just the first sheet's.
+    sourceDocuments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Full fingerprint of this sheet's parse (numbering, label, and every row's
+    # athlete, team, times, status and splits); it detects a document whose parse
+    # now yields different evidence instead of silently accepting the change.
+    sourceEvidenceKey: Mapped[str | None] = mapped_column(String(64), nullable=True)
     label: Mapped[str | None] = mapped_column(String, nullable=True)
     resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
     resolverVersion: Mapped[str] = mapped_column(String, nullable=False)
@@ -469,8 +500,25 @@ class CompetitionSession(Base):
     relay_results: Mapped[list["RelayResult"]] = relationship(back_populates="competition_session")
 
     __table_args__ = (
-        UniqueConstraint("competitionDayId", "sessionNumber", name="CompetitionSession_day_session_uq"),
-        CheckConstraint('"sessionNumber" > 0', name="CompetitionSession_number_ck"),
+        Index(
+            "CompetitionSession_day_session_uq",
+            "competitionDayId",
+            "sessionNumber",
+            unique=True,
+            sqlite_where=text('"sessionNumber" IS NOT NULL'),
+            postgresql_where=text('"sessionNumber" IS NOT NULL'),
+        ),
+        Index(
+            "CompetitionSession_source_document_uq",
+            "sourceDocumentSha",
+            unique=True,
+            sqlite_where=text('"sourceDocumentSha" IS NOT NULL'),
+            postgresql_where=text('"sourceDocumentSha" IS NOT NULL'),
+        ),
+        CheckConstraint(
+            '"sessionNumber" IS NULL OR "sessionNumber" > 0',
+            name="CompetitionSession_number_ck",
+        ),
         CheckConstraint(
             '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
             name="CompetitionSession_resolution_status_ck",

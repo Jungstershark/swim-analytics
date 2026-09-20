@@ -55,6 +55,7 @@ def _base_policy(*, documents: list[dict], rules: list[dict] | None = None,
         "source_page": "https://example.test/competition",
         "status": "ready",
         "documents": documents,
+        "shared_evidence": [],
         "rules": rules or [],
         "expected": {
             "documents": len(documents),
@@ -391,7 +392,20 @@ Name Age Team Seed Time Finals Time
     with pytest.raises(ValueError, match="Multiple result documents claim"):
         _preflight_documents((one, two))
 
+    # Sharing a package is not authorisation: the policy has to name the pair.
     curated, _report = apply_package_curation((one, two), policy)
+    with pytest.raises(ValueError, match="does not declare them as an overlapping pair"):
+        _preflight_documents(curated)
+
+    declaring = load_package_curation(_write_policy(tmp_path, _base_policy(
+        documents=[
+            {"filename": "one.pdf", "sha256": one_sha, "category": "overall_results"},
+            {"filename": "two.pdf", "sha256": two_sha, "category": "overall_results"},
+        ],
+        individual=2,
+    ) | {"shared_evidence": [{"documents": ["one.pdf", "two.pdf"]}]}))
+
+    curated, _report = apply_package_curation((one, two), declaring)
     _preflight_documents(curated)
 
 

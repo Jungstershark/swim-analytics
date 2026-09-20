@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Import one archived competition manifest into the relational database."""
+"""Import one archived competition manifest into the relational database.
+
+Competition name and date range are caller-supplied: the parser only ever
+prefills them. Documents whose pages print their own identity need nothing;
+`--identity` names the ones that do not (for example a results sheet with no
+competition header line).
+"""
 
 from __future__ import annotations
 
@@ -14,12 +20,22 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 CURATION_DIR = REPO_ROOT / "config" / "package-curation"
 sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.competition_packages import parse_document_identity_payload  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.package_curation import load_manifest_curation_policy  # noqa: E402
 from app.package_import import (  # noqa: E402
     import_parsed_competition_documents,
     parse_competition_manifest,
 )
+
+
+def _load_document_identity(path: Path | None):
+    if path is None:
+        return None
+    identity_path = path.resolve(strict=True)
+    return parse_document_identity_payload(
+        json.loads(identity_path.read_text(encoding="utf-8"))
+    )
 
 
 def main() -> int:
@@ -30,6 +46,17 @@ def main() -> int:
     parser.add_argument("--title", required=True, help="Authoritative umbrella competition title")
     parser.add_argument("--curation-policy", type=Path, default=None)
     parser.add_argument(
+        "--identity",
+        type=Path,
+        default=None,
+        help=(
+            "JSON identity for documents whose pages print none, for example "
+            '{"documents": [{"filename": "day-2-heats.pdf", '
+            '"segment_name": "20th SNSC 2025", "start_date": "2025-05-31", '
+            '"end_date": "2025-06-03"}]}'
+        ),
+    )
+    parser.add_argument(
         "--archive-root",
         type=Path,
         default=Path("data/raw-documents"),
@@ -37,6 +64,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    document_identity = _load_document_identity(args.identity)
     manifest_path = args.manifest.resolve(strict=True)
     policy = load_manifest_curation_policy(
         manifest_path,
@@ -57,6 +85,7 @@ def main() -> int:
             competition_title=args.title,
             documents=package.documents,
             archive_root=args.archive_root,
+            document_identity=document_identity,
         )
     finally:
         db.close()

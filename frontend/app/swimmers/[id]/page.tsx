@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   displayName,
   resultDisplayValue,
@@ -12,13 +12,35 @@ import {
 } from "@/lib/api";
 
 export default function SwimmerProfilePage() {
+  return (
+    <Suspense fallback={<LoadingShell />}>
+      <SwimmerProfileContent />
+    </Suspense>
+  );
+}
+
+type Course = "LCM" | "SCM" | "Unknown";
+type CourseParam = "LCM" | "SCM" | "unknown";
+const COURSE_PARAMS: readonly CourseParam[] = ["LCM", "SCM", "unknown"];
+
+function SwimmerProfileContent() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const swimmerId = Number(params.id);
   const [detail, setDetail] = useState<BrowserSwimmerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [openEvent, setOpenEvent] = useState<string | null>(null);
-  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
+  const requestedCourse = searchParams.get("course");
+  const selectedCourse: Course | null = COURSE_PARAMS.includes(requestedCourse as CourseParam)
+    ? requestedCourse === "unknown" ? "Unknown" : requestedCourse as Exclude<Course, "Unknown">
+    : null;
+
+  useEffect(() => {
+    if (requestedCourse === null || COURSE_PARAMS.includes(requestedCourse as CourseParam)) return;
+    router.replace(`/swimmers/${swimmerId}`, { scroll: false });
+  }, [requestedCourse, router, swimmerId]);
 
   useEffect(() => {
     if (!Number.isInteger(swimmerId) || swimmerId <= 0) {
@@ -49,7 +71,18 @@ export default function SwimmerProfilePage() {
   }
 
   const swimmer = detail.swimmer;
-  const activeCourse = detail.course_history.find((group) => group.course === selectedCourse) || detail.course_history[0];
+  const displayedCourses = selectedCourse
+    ? detail.course_history.filter((group) => group.course === selectedCourse)
+    : detail.course_history;
+
+  function selectCourse(course: Course | null) {
+    const next = new URLSearchParams(searchParams.toString());
+    if (course) next.set("course", course === "Unknown" ? "unknown" : course);
+    else next.delete("course");
+    const query = next.toString();
+    setOpenEvent(null);
+    router.push(`/swimmers/${swimmerId}${query ? `?${query}` : ""}`);
+  }
 
   return (
     <div className="min-h-screen">
@@ -100,18 +133,23 @@ export default function SwimmerProfilePage() {
               <p className="text-sm text-gray-500 mt-1">Choose the pool course, then open an event to follow competition-by-competition progress.</p>
             </div>
             <div className="flex flex-wrap gap-2" aria-label="Pool course">
+              <button
+                type="button"
+                aria-pressed={selectedCourse === null}
+                onClick={() => selectCourse(null)}
+                className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${selectedCourse === null ? "bg-ssa-navy text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-ssa-teal"}`}
+              >
+                All courses
+              </button>
               {detail.course_history.map((group) => {
-                const isSelected = activeCourse?.course === group.course;
+                const isSelected = selectedCourse === group.course;
                 return (
                   <button
                     key={group.course}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => {
-                      setSelectedCourse(group.course);
-                      setOpenEvent(null);
-                    }}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${isSelected ? "bg-ssa-navy text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-ssa-teal"}`}
+                    onClick={() => selectCourse(group.course)}
+                    className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${isSelected ? "bg-ssa-navy text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-ssa-teal"}`}
                   >
                     {group.course} <span className={isSelected ? "text-white/70" : "text-gray-400"}>{group.event_count}</span>
                   </button>
@@ -120,19 +158,23 @@ export default function SwimmerProfilePage() {
             </div>
           </div>
 
-          {!activeCourse ? (
+          {displayedCourses.length === 0 ? (
             <div className="card p-6 text-sm text-gray-400 text-center">No recorded individual performances yet.</div>
           ) : (
-            <div className="grid gap-3">
-              {activeCourse.events.map((event) => {
-                const isOpen = openEvent === event.canonical_event_key;
-                return (
-                  <div key={event.canonical_event_key} className="card overflow-hidden">
+            <div className="grid gap-6">
+              {displayedCourses.map((group) => (
+                <section key={group.course} aria-label={`${group.course} performance history`} className="grid gap-3">
+                  {selectedCourse === null && <h2 className="text-lg font-semibold text-ssa-navy">{group.course}</h2>}
+                  {group.events.map((event) => {
+                    const eventIdentity = `${group.course}:${event.canonical_event_key}`;
+                    const isOpen = openEvent === eventIdentity;
+                    return (
+                  <div key={eventIdentity} className="card overflow-hidden">
                     <button
                       type="button"
                       aria-expanded={isOpen}
-                      onClick={() => setOpenEvent(isOpen ? null : event.canonical_event_key)}
-                      className="w-full p-4 flex items-center justify-between gap-4 text-left hover:bg-ssa-teal/5"
+                      onClick={() => setOpenEvent(isOpen ? null : eventIdentity)}
+                      className="min-h-11 w-full p-4 flex items-center justify-between gap-4 text-left hover:bg-ssa-teal/5"
                     >
                       <div className="min-w-0">
                         <h3 className="font-semibold text-ssa-navy">{event.event}</h3>
@@ -151,8 +193,10 @@ export default function SwimmerProfilePage() {
                     </button>
                     {isOpen && <IndividualRows rows={event.performances} />}
                   </div>
-                );
-              })}
+                    );
+                  })}
+                </section>
+              ))}
             </div>
           )}
         </section>

@@ -164,6 +164,19 @@ export interface UploadPreviewResponse {
   results_count: number;
   swimmers_count: number;
   events: PreviewEventGroup[];
+  /** Identity placeholders: parsed values prefill the upload form. */
+  competition_name: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  /** True when the document prints no such value, so the form must supply it. */
+  requires_competition_name: boolean;
+  requires_dates: boolean;
+}
+
+export interface UploadIdentityInput {
+  competitionName?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 export interface DuplicateEntry {
@@ -728,18 +741,29 @@ export async function getResult(id: number): Promise<ResultDetail> {
 // Upload
 // ---------------------------------------------------------------------------
 
-export async function previewUpload(file: File): Promise<UploadPreviewResponse> {
+function appendUploadIdentity(formData: FormData, identity: UploadIdentityInput = {}) {
+  if (identity.competitionName) formData.append("competition_name", identity.competitionName);
+  if (identity.startDate) formData.append("start_date", identity.startDate);
+  if (identity.endDate) formData.append("end_date", identity.endDate);
+}
+
+export async function previewUpload(
+  file: File,
+  identity: UploadIdentityInput = {}
+): Promise<UploadPreviewResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  appendUploadIdentity(formData, identity);
   return apiFetch("/upload/preview", { method: "POST", body: formData });
 }
 
 export async function uploadResults(
   file: File,
-  options: { replace?: boolean } = {}
+  options: { replace?: boolean } & UploadIdentityInput = {}
 ): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  appendUploadIdentity(formData, options);
   const q = new URLSearchParams();
   if (options.replace) q.set("replace", "true");
   const qs = q.toString();
