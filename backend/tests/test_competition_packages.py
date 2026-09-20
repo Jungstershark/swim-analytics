@@ -1909,31 +1909,45 @@ Name Age Team Seed Time Finals Time
         )
 
 
-def test_overlapping_documents_must_agree_about_the_same_performance():
-    """Sheets may share a race, but not disagree about how it was swum."""
+def test_overlapping_documents_must_agree_within_a_session():
+    """Sheets may share a race; a same-session disagreement fails closed.
+
+    A prelim result legitimately reprints on a later session's sheet (different
+    day/session), so only documents claiming the same session must agree.
+    """
     single, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
 Example Meet - 1/6/2026 to 2/6/2026
 Results - Day 1 Session 1
 Event 1 Men 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Keep, One 20 Club 24.00 23.00"""])
-    # Different document shape (an extra event), same values for event 1.
+    # Same session, extra event so the document shape differs, same values.
     agreeing, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
 Example Meet - 1/6/2026 to 2/6/2026
-Results - Day 1 Session 2
+Results - Day 1 Session 1
 Event 1 Men 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Keep, One 20 Club 24.00 23.00
 Event 2 Women 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Keep, Two 20 Club 25.00 24.00"""])
-    # Same shape as `agreeing`, but a different time for the shared race.
+    # Same session and shape as `agreeing`, but a different time for the shared race.
     disagreeing, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
 Example Meet - 1/6/2026 to 2/6/2026
-Results - Day 1 Session 2
+Results - Day 1 Session 1
 Event 1 Men 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Keep, One 20 Club 24.00 22.50
+Event 2 Women 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, Two 20 Club 25.00 24.00"""])
+    # A later session reprinting the same prelim result is not a conflict.
+    reprinted, _ = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+Example Meet - 1/6/2026 to 2/6/2026
+Results - Day 2 Session 4
+Event 1 Men 50 LC Meter Freestyle
+Name Age Team Seed Time Finals Time
+1 Keep, One 20 Club 24.00 22.90
 Event 2 Women 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Keep, Two 20 Club 25.00 24.00"""])
@@ -1941,6 +1955,7 @@ Name Age Team Seed Time Finals Time
     doc_single = _numbered_document("sheet-single.pdf", single)
 
     _preflight_documents([doc_single, _numbered_document("sheet-agree.pdf", agreeing)])
+    _preflight_documents([doc_single, _numbered_document("sheet-later.pdf", reprinted)])
 
     with pytest.raises(ValueError, match="different values for the same performance"):
         _preflight_documents(

@@ -318,10 +318,15 @@ def _preflight_documents(
         )
 
         # A shape hash cannot see two sheets that overlap on one race and
-        # disagree about it. Each performance is therefore compared by identity:
-        # reprints agree, a conflict fails closed.
+        # disagree about it. Each performance is compared within its session:
+        # reprints agree, a same-session conflict fails closed.
+        session_key = (
+            ("numbered", parsed.day_number, parsed.session_number)
+            if parsed.day_number is not None and parsed.session_number is not None
+            else ("document", document.sha256)
+        )
         for identity_key, signature in performance_signatures(
-            parsed, segment_name
+            parsed, segment_name, session_key=session_key
         ).items():
             previous_performance = performances.get(identity_key)
             if previous_performance is None:
@@ -330,12 +335,13 @@ def _preflight_documents(
             if previous_performance[0] == document.sha256:
                 continue
             if previous_performance[1] != signature:
-                _, event_number, event_name, time_type = identity_key[0]
-                _, kind, who, team = identity_key
+                event_key = identity_key[0]
+                kind, who, team = identity_key[1], identity_key[2], identity_key[3]
                 raise ValueError(
-                    f"Conflicting {time_type} for {event_name} "
-                    f"({kind} {who} / {team}) in {segment_name}: two documents "
-                    "carry different values for the same performance"
+                    f"Conflicting {event_key[4]} for {event_key[3]} (event "
+                    f"{event_key[2]}, {kind} {who} / {team}) in {segment_name}: two "
+                    "documents in the same session carry different values for the "
+                    "same performance"
                 )
 
 

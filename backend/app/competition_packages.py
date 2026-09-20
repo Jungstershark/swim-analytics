@@ -400,21 +400,33 @@ def _row_identity_text(row: Any, *names: str) -> str:
 
 
 def performance_signatures(
-    parsed: ParsedMeet, segment_name: str
+    parsed: ParsedMeet,
+    segment_name: str,
+    *,
+    session_key: tuple[Any, ...] | None = None,
 ) -> dict[tuple[Any, ...], tuple[str, ...]]:
-    """Map every performance's semantic identity to its sorted row digests.
+    """Map each performance's identity to its sorted row digests, per session.
 
     A document-shape hash answers "does this look like the same sheet"; it cannot
-    see two sheets that overlap on one race and disagree about it. This map is
-    keyed by (segment, event, round, athlete/team) and keeps a *multiset* of
-    digests per key, so a repeated identity (a relay A and B squad of one club,
-    say) is compared in full instead of one entry silently replacing the other.
+    see two sheets that overlap on one race and disagree about it. The identity is
+    therefore scoped to the session the row belongs to: the same prelim result
+    legitimately reprints on a later session's sheet, so only documents claiming
+    the *same session*, event, round and athlete have to agree. An unnumbered
+    sheet is its own session in this model, so it is keyed by its document - it
+    can never collide with another document's rows.
     """
     segment = _normalise_event_name(segment_name)
+    if session_key is None:
+        session_key = (
+            ("numbered", parsed.day_number, parsed.session_number)
+            if parsed.day_number is not None and parsed.session_number is not None
+            else ("document", None)
+        )
     signatures: dict[tuple[Any, ...], list[str]] = {}
     for event in parsed.events:
         event_key = (
             segment,
+            session_key,
             event.event_number,
             _normalise_event_name(event.event_name),
             event.time_type,
