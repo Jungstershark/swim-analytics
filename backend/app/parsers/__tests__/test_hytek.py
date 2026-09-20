@@ -1084,6 +1084,48 @@ def test_relay_quarantine_source_reason_only_reports_source_evidence(
         assert expected_phrase in reason
 
 
+def test_heat_lane_column_is_not_glued_onto_the_swimmer_name():
+    """One 20th SNSC heats sheet prints '<place> <heat>-<lane> <name>'.
+
+    The heat-lane token sits between the placement and the name. Read as part of
+    the name, every row on the sheet becomes a distinct swimmer and one person's
+    history splits in two - which is what happened to all 403 rows of that sheet
+    before the column was handled.
+    """
+    parsed, _confidence = parse_hytek_text(["""HY-TEK's MEET MANAGER 8.0 Page 1
+20th SNSC 2025 - 31/5/2025 to 3/6/2025
+Results - Day 3 Session 5
+Event 301 Men 100 LC Meter Butterfly
+Name Age Team Seed Time Prelim Time
+4 1-1 Yap, Yan Xi Brandon 19 Aquarian Aquatic School 55.78 55.51 qMTS
+*5 1-2 Loo, Russell 20 AquaTech Swimming 54.69 55.56 qMTS
+12 1-5 Yu, Lennon Cheng Zhong 19 SwimDolphia Aquatic School 58.54 57.76
+7 10-3 Tan, Sage 20 Ace Swim Club 55.97 55.94 qMTS
+17 10- Chan, Wei 15 Some Swim Club 58.00 58.10
+1 2-1 *Wongcharoen, Navaphat 28 Singha (Tha) 54.03 53.99 qMTS
+"""])
+
+    rows = [row for event in parsed.events for row in event.results]
+    assert [row.name for row in rows] == [
+        "Yap, Yan Xi Brandon",
+        "Loo, Russell",
+        "Yu, Lennon Cheng Zhong",
+        "Tan, Sage",
+        "Chan, Wei",
+        "Wongcharoen, Navaphat",
+    ]
+    assert [row.placement for row in rows] == [4, 5, 12, 7, 17, 1]
+    assert [row.age for row in rows] == [19, 20, 19, 20, 15, 28]
+    assert rows[0].team == "Aquarian Aquatic School"
+    assert rows[0].seed_time == "55.78"
+    assert rows[0].finals_time == "55.51"
+    assert rows[0].qualifier == "qMTS"
+    # "*" before the placement marks a tie; before the name it marks a guest.
+    assert rows[1].is_tied is True
+    assert rows[5].is_guest is True
+    assert rows[5].team == "Singha (Tha)"
+
+
 @pytest.mark.skipif(
     not SNAG55_JUNIORS_J1_PATH.exists(), reason="Archived 55th SNAG PDF not found"
 )

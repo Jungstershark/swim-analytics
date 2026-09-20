@@ -258,6 +258,7 @@ RE_SECTION_MARKER = re.compile(
 # NS:     "--- Hong, Cheng Hou 13 Swimfast Aquatic Club 3:00.90 NS"
 RE_RESULT_LINE = re.compile(
     r"^(\*?\d+|---)\s+"       # placement (number, *number for tied, --- for DQ/NS)
+    r"(?:\d{1,2}-(?:[1-9]\d?)?\s+)?"  # optional heat-lane column ("1-2", "10-")
     r"(.+?)\s+"               # name (greedy but will be trimmed)
     r"(\d{1,2})\s+"           # age
     r"(.+?)\s+"               # team
@@ -302,6 +303,7 @@ RE_RELAY_COLUMN_HEADER = re.compile(
 # DQ: "--- Serangoon Gardens Country Club D NT DQ"
 RE_RELAY_RESULT = re.compile(
     r"^(\*?\d+|---)\s+"               # placement
+    r"(?:\d{1,2}-(?:[1-9]\d?)?\s+)?"  # optional heat-lane column ("1-2", "10-")
     r"(.+?)\s+"                        # team name
     r"([A-Z])\s+"                      # relay letter
     r"([\d:]+\.[\d]+|NT)\s+"           # seed time
