@@ -18,7 +18,7 @@ from typing import Any, Iterable
 from sqlalchemy import case, distinct, func, or_, select, union_all
 from sqlalchemy.orm import Session, joinedload
 
-from .models import Meet, RawDocument, RelayLeg, RelayResult, Result, SourceReference, Swimmer
+from .models import AthleteProfile, Meet, RawDocument, RelayLeg, RelayResult, Result, SourceReference, Swimmer
 from .parsers.hytek import time_to_seconds
 
 
@@ -213,6 +213,18 @@ def swimmer_brief(swimmer: Swimmer | None) -> dict[str, Any] | None:
     }
 
 
+def athlete_profile_brief(profile: AthleteProfile, ages: Iterable[int | None]) -> dict[str, Any]:
+    """Browser-facing athlete identity while result rows keep their source age."""
+    return {
+        "athlete_profile_id": profile.id,
+        "source_swimmer_id": None,
+        "name": profile.name,
+        "team": profile.team,
+        "ages": sorted({age for age in ages if age is not None}),
+        "identity_status": "derived_name_and_club",
+    }
+
+
 def pagination(page: int, limit: int, total: int) -> dict[str, int]:
     return {
         "page": page,
@@ -246,6 +258,177 @@ def event_group_payload(
     }
 
 
+def list_browser_athletes(
+    db: Session,
+    *,
+    page: int = 1,
+    limit: int = 50,
+    q: str | None = None,
+    team: str | None = None,
+    min_results: int | None = None,
+    has_warnings: bool | None = None,
+    sort: str = "name",
+    order: str = "asc",
+) -> dict[str, Any]:
+    """List athlete profiles with source-row counts in a bounded query set."""
+    individual_counts = (
+        db.query(
+            Swimmer.athleteProfileId.label("profile_id"),
+            func.count(Result.id).label("individual_result_count"),
+        )
+        .join(Result, Result.swimmerId == Swimmer.id)
+        .filter(Swimmer.athleteProfileId.isnot(None))
+        .group_by(Swimmer.athleteProfileId)
+        .subquery()
+    )
+    relay_counts = (
+        db.query(
+            Swimmer.athleteProfileId.label("profile_id"),
+            func.count(distinct(RelayResult.id)).label("relay_result_count"),
+        )
+        .join(RelayLeg, RelayLeg.swimmerId == Swimmer.id)
+        .join(RelayResult, RelayResult.id == RelayLeg.relayResultId)
+        .filter(Swimmer.athleteProfileId.isnot(None))
+        .group_by(Swimmer.athleteProfileId)
+        .subquery()
+    )
+    participation = union_all(
+        select(
+            Swimmer.athleteProfileId.label("profile_id"),
+            Result.meetId.label("meet_id"),
+            Result.event.label("event"),
+        ).join(Result, Result.swimmerId == Swimmer.id).where(Swimmer.athleteProfileId.isnot(None)),
+        select(
+            Swimmer.athleteProfileId.label("profile_id"),
+            RelayResult.meetId.label("meet_id"),
+            RelayResult.event.label("event"),
+        ).join(RelayLeg, RelayLeg.swimmerId == Swimmer.id).join(
+            RelayResult, RelayResult.id == RelayLeg.relayResultId
+        ).where(Swimmer.athleteProfileId.isnot(None)),
+    ).subquery()
+    combined_counts = (
+        db.query(
+            participation.c.profile_id,
+            func.count(distinct(participation.c.meet_id)).label("meet_count"),
+            func.count(distinct(participation.c.event)).label("event_count"),
+            func.max(Meet.startDate).label("latest_date"),
+        )
+        .join(Meet, Meet.id == participation.c.meet_id)
+        .group_by(participation.c.profile_id)
+        .subquery()
+    )
+    warning_profile_ids = (
+        db.query(Swimmer.athleteProfileId)
+        .filter(Swimmer.athleteProfileId.isnot(None), _suspicious_name_sql_expr(Swimmer.name))
+        .distinct()
+        .subquery()
+    )
+
+    query = db.query(
+        AthleteProfile,
+        individual_counts.c.individual_result_count,
+        combined_counts.c.meet_count,
+        combined_counts.c.event_count,
+        combined_counts.c.latest_date,
+        relay_counts.c.relay_result_count,
+    ).outerjoin(
+        individual_counts, individual_counts.c.profile_id == AthleteProfile.id
+    ).outerjoin(
+        combined_counts, combined_counts.c.profile_id == AthleteProfile.id
+    ).outerjoin(relay_counts, relay_counts.c.profile_id == AthleteProfile.id)
+
+    if q:
+        query = query.filter(AthleteProfile.name.ilike(f"%{q}%"))
+    if team:
+        query = query.filter(AthleteProfile.team.ilike(f"%{team}%"))
+    if min_results is not None:
+        query = query.filter(func.coalesce(individual_counts.c.individual_result_count, 0) >= min_results)
+    if has_warnings is not None:
+        warning_ids = select(warning_profile_ids.c.athleteProfileId)
+        query = query.filter(AthleteProfile.id.in_(warning_ids) if has_warnings else ~AthleteProfile.id.in_(warning_ids))
+
+    rows = query.all()
+    profile_ids = [profile.id for profile, *_counts in rows]
+
+    source_rows_by_profile: dict[int, list[Swimmer]] = defaultdict(list)
+    if profile_ids:
+        for swimmer in db.query(Swimmer).filter(Swimmer.athleteProfileId.in_(profile_ids)).all():
+            source_rows_by_profile[swimmer.athleteProfileId].append(swimmer)
+
+    latest_meets_by_profile: dict[int, dict[str, Any]] = {}
+    if profile_ids:
+        latest_rows = (
+            db.query(participation.c.profile_id, Meet)
+            .join(Meet, Meet.id == participation.c.meet_id)
+            .filter(participation.c.profile_id.in_(profile_ids))
+            .order_by(participation.c.profile_id, Meet.startDate.desc(), Meet.id.desc())
+            .all()
+        )
+        for profile_id, meet in latest_rows:
+            latest_meet = meet_brief(meet)
+            if latest_meet is not None:
+                latest_meets_by_profile.setdefault(profile_id, latest_meet)
+
+    cards = []
+    for profile, individual_count, meet_count, event_count, _latest_date, relay_count in rows:
+        source_rows = source_rows_by_profile.get(profile.id, [])
+        warnings = [warning for swimmer in source_rows for warning in suspicious_name_warnings(swimmer)]
+        cards.append({
+            **athlete_profile_brief(profile, (swimmer.age for swimmer in source_rows)),
+            "individual_result_count": int(individual_count or 0),
+            "relay_result_count": int(relay_count or 0),
+            "meet_count": int(meet_count or 0),
+            "event_count": int(event_count or 0),
+            "latest_meet": latest_meets_by_profile.get(profile.id),
+            "warning_count": len(warnings),
+            "warnings": warnings,
+        })
+
+    # A missing/ambiguous club must not be silently turned into a person-level
+    # profile. Keep those source rows visible as explicit ungrouped cards.
+    unlinked_ids = {
+        swimmer_id for (swimmer_id,) in db.query(Swimmer.id)
+        .filter(Swimmer.athleteProfileId.is_(None)).all()
+    }
+    if unlinked_ids:
+        source_cards = list_browser_swimmers(
+            db, page=1, limit=100000, q=q, team=team,
+            min_results=min_results, has_warnings=has_warnings, sort=sort, order=order,
+        )["data"]
+        for source in source_cards:
+            if source["id"] not in unlinked_ids:
+                continue
+            cards.append({
+                "athlete_profile_id": None,
+                "source_swimmer_id": source["id"],
+                "name": source["name"],
+                "team": source["team"] or "No team",
+                "ages": [source["age"]] if source["age"] is not None else [],
+                "identity_status": "source_row_unlinked",
+                "individual_result_count": source["individual_result_count"],
+                "relay_result_count": source["relay_result_count"],
+                "meet_count": source["meet_count"],
+                "event_count": source["event_count"],
+                "latest_meet": source["latest_meet"],
+                "warning_count": source["warning_count"],
+                "warnings": source["warnings"],
+            })
+
+    def sort_value(card: dict[str, Any]) -> Any:
+        if sort == "team":
+            return card["team"].casefold()
+        if sort == "result_count":
+            return card["individual_result_count"]
+        if sort == "latest_meet":
+            return (card["latest_meet"] or {}).get("date") or ""
+        return card["name"].casefold()
+
+    cards.sort(key=lambda card: (sort_value(card), card["name"].casefold()), reverse=order == "desc")
+    total = len(cards)
+    start = (page - 1) * limit
+    return {"data": cards[start : start + limit], "pagination": pagination(page, limit, total)}
+
+
 def list_browser_swimmers(
     db: Session,
     *,
@@ -258,36 +441,22 @@ def list_browser_swimmers(
     sort: str = "name",
     order: str = "asc",
 ) -> dict[str, Any]:
-    """List swimmers with aggregate counts using grouped subqueries, not N+1 loops."""
+    """Legacy source-swimmer catalogue; IDs always remain ``Swimmer.id``."""
     individual_counts = (
-        db.query(
-            Result.swimmerId.label("swimmer_id"),
-            func.count(Result.id).label("individual_result_count"),
-        )
+        db.query(Result.swimmerId.label("swimmer_id"), func.count(Result.id).label("individual_result_count"))
         .group_by(Result.swimmerId)
         .subquery()
     )
     relay_counts = (
-        db.query(
-            RelayLeg.swimmerId.label("swimmer_id"),
-            func.count(distinct(RelayResult.id)).label("relay_result_count"),
-        )
+        db.query(RelayLeg.swimmerId.label("swimmer_id"), func.count(distinct(RelayResult.id)).label("relay_result_count"))
         .join(RelayResult, RelayResult.id == RelayLeg.relayResultId)
         .filter(RelayLeg.swimmerId.isnot(None))
         .group_by(RelayLeg.swimmerId)
         .subquery()
     )
     participation = union_all(
-        select(
-            Result.swimmerId.label("swimmer_id"),
-            Result.meetId.label("meet_id"),
-            Result.event.label("event"),
-        ),
-        select(
-            RelayLeg.swimmerId.label("swimmer_id"),
-            RelayResult.meetId.label("meet_id"),
-            RelayResult.event.label("event"),
-        )
+        select(Result.swimmerId.label("swimmer_id"), Result.meetId.label("meet_id"), Result.event.label("event")),
+        select(RelayLeg.swimmerId.label("swimmer_id"), RelayResult.meetId.label("meet_id"), RelayResult.event.label("event"))
         .join(RelayResult, RelayResult.id == RelayLeg.relayResultId)
         .where(RelayLeg.swimmerId.isnot(None)),
     ).subquery()
@@ -302,7 +471,6 @@ def list_browser_swimmers(
         .group_by(participation.c.swimmer_id)
         .subquery()
     )
-
     query = db.query(
         Swimmer,
         individual_counts.c.individual_result_count,
@@ -315,7 +483,6 @@ def list_browser_swimmers(
     ).outerjoin(
         combined_counts, combined_counts.c.swimmer_id == Swimmer.id
     ).outerjoin(relay_counts, relay_counts.c.swimmer_id == Swimmer.id)
-
     if q:
         query = query.filter(Swimmer.name.ilike(f"%{q}%"))
     if team:
@@ -325,9 +492,7 @@ def list_browser_swimmers(
     if has_warnings is not None:
         suspicious_expr = _suspicious_name_sql_expr(Swimmer.name)
         query = query.filter(suspicious_expr if has_warnings else ~suspicious_expr)
-
     total = query.count()
-
     sort_map = {
         "name": Swimmer.name,
         "team": Swimmer.team,
@@ -336,42 +501,35 @@ def list_browser_swimmers(
     }
     sort_col = sort_map.get(sort, Swimmer.name)
     query = query.order_by(sort_col.desc().nullslast() if order == "desc" else sort_col.asc().nullslast())
-
     rows = query.offset((page - 1) * limit).limit(limit).all()
-    page_swimmer_ids = [swimmer.id for swimmer, *_counts in rows]
-    latest_meets_by_swimmer: dict[int, dict[str, Any]] = {}
-    if page_swimmer_ids:
-        latest_rows = (
+    swimmer_ids = [swimmer.id for swimmer, *_counts in rows]
+    latest_meets: dict[int, dict[str, Any]] = {}
+    if swimmer_ids:
+        for swimmer_id, meet in (
             db.query(participation.c.swimmer_id, Meet)
             .join(Meet, Meet.id == participation.c.meet_id)
-            .filter(participation.c.swimmer_id.in_(page_swimmer_ids))
+            .filter(participation.c.swimmer_id.in_(swimmer_ids))
             .order_by(participation.c.swimmer_id, Meet.startDate.desc(), Meet.id.desc())
             .all()
-        )
-        for swimmer_id, meet in latest_rows:
-            latest_meet = meet_brief(meet)
-            if latest_meet is not None:
-                latest_meets_by_swimmer.setdefault(swimmer_id, latest_meet)
-
+        ):
+            if (brief := meet_brief(meet)) is not None:
+                latest_meets.setdefault(swimmer_id, brief)
     data = []
-    for swimmer, individual_count, meet_count, event_count, latest_date, relay_count in rows:
+    for swimmer, individual_count, meet_count, event_count, _latest_date, relay_count in rows:
         warnings = suspicious_name_warnings(swimmer)
-        data.append(
-            {
-                "id": swimmer.id,
-                "name": swimmer.name,
-                "age": swimmer.age,
-                "team": swimmer.team,
-                "individual_result_count": int(individual_count or 0),
-                "relay_result_count": int(relay_count or 0),
-                "meet_count": int(meet_count or 0),
-                "event_count": int(event_count or 0),
-                "latest_meet": latest_meets_by_swimmer.get(swimmer.id),
-                "warning_count": len(warnings),
-                "warnings": warnings,
-            }
-        )
-
+        data.append({
+            "id": swimmer.id,
+            "name": swimmer.name,
+            "age": swimmer.age,
+            "team": swimmer.team,
+            "individual_result_count": int(individual_count or 0),
+            "relay_result_count": int(relay_count or 0),
+            "meet_count": int(meet_count or 0),
+            "event_count": int(event_count or 0),
+            "latest_meet": latest_meets.get(swimmer.id),
+            "warning_count": len(warnings),
+            "warnings": warnings,
+        })
     return {"data": data, "pagination": pagination(page, limit, total)}
 
 
@@ -493,7 +651,10 @@ def browser_overview(db: Session) -> dict[str, Any]:
     return {
         "counts": {
             "meets": db.query(Meet).count(),
-            "swimmers": db.query(Swimmer).count(),
+            "swimmers": (
+                db.query(AthleteProfile).count()
+                + db.query(Swimmer).filter(Swimmer.athleteProfileId.is_(None)).count()
+            ),
             "individual_results": db.query(Result).count(),
             "relay_results": db.query(RelayResult).count(),
             "raw_documents": db.query(RawDocument).count(),
@@ -631,12 +792,47 @@ def browser_event(
     return {"event_group": event_group, "data": rows[start : start + limit], "pagination": pagination(page, limit, total), "warnings": []}
 
 
-def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | None:
-    swimmer = db.query(Swimmer).filter(Swimmer.id == swimmer_id).first()
-    if swimmer is None:
-        return None
-    results = db.query(Result).options(joinedload(Result.meet), joinedload(Result.swimmer)).filter(Result.swimmerId == swimmer_id).all()
-    relays = db.query(RelayResult).options(joinedload(RelayResult.meet), joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer)).join(RelayLeg).filter(RelayLeg.swimmerId == swimmer_id).all()
+def browser_athlete_profile_detail(
+    db: Session,
+    athlete_profile_id: int | None = None,
+    *,
+    source_swimmer: Swimmer | None = None,
+) -> dict[str, Any] | None:
+    """Return a combined profile, or preserve one unlinked source-row detail."""
+    is_unlinked_source = source_swimmer is not None
+    if source_swimmer is not None:
+        # This transient projection preserves old links for ambiguous source rows
+        # without creating or claiming an athlete profile for them.
+        profile = AthleteProfile(
+            id=source_swimmer.id,
+            name=source_swimmer.name,
+            nameKey=source_swimmer.nameKey or "source",
+            team=source_swimmer.team or "No team",
+            teamKey=source_swimmer.teamKey or "source",
+        )
+        swimmers = [source_swimmer]
+    else:
+        if athlete_profile_id is None:
+            return None
+        profile = db.query(AthleteProfile).filter(AthleteProfile.id == athlete_profile_id).first()
+        if profile is None:
+            return None
+        swimmers = db.query(Swimmer).filter(Swimmer.athleteProfileId == profile.id).all()
+    swimmer_ids = [swimmer.id for swimmer in swimmers]
+    results = (
+        db.query(Result)
+        .options(joinedload(Result.meet), joinedload(Result.swimmer))
+        .filter(Result.swimmerId.in_(swimmer_ids))
+        .all()
+    ) if swimmer_ids else []
+    relays = (
+        db.query(RelayResult)
+        .options(joinedload(RelayResult.meet), joinedload(RelayResult.legs).joinedload(RelayLeg.swimmer))
+        .join(RelayLeg)
+        .filter(RelayLeg.swimmerId.in_(swimmer_ids))
+        .distinct()
+        .all()
+    ) if swimmer_ids else []
 
     pbs = []
     by_event: dict[str, tuple[Result, float]] = {}
@@ -714,9 +910,14 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
     for rr in sorted(relays, key=lambda rr: rr.swimDate or rr.meet.startDate):
         relay_history.append(_relay_event_row(rr))
 
-    warnings = suspicious_name_warnings(swimmer)
+    warnings = [warning for swimmer in swimmers for warning in suspicious_name_warnings(swimmer)]
+    profile_payload = athlete_profile_brief(profile, (swimmer.age for swimmer in swimmers))
+    if is_unlinked_source:
+        profile_payload["athlete_profile_id"] = None
+        profile_payload["source_swimmer_id"] = source_swimmer.id
+        profile_payload["identity_status"] = "source_row_unlinked"
     return {
-        "swimmer": swimmer_brief(swimmer),
+        "swimmer": profile_payload,
         "stats": {
             "individual_result_count": len(results),
             "relay_result_count": len(relays),
@@ -733,6 +934,16 @@ def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | Non
         "relay_history": relay_history,
         "warnings": warnings,
     }
+
+
+def browser_swimmer_detail(db: Session, swimmer_id: int) -> dict[str, Any] | None:
+    """Resolve an old source-row URL to its athlete profile when available."""
+    swimmer = db.query(Swimmer).filter(Swimmer.id == swimmer_id).first()
+    if swimmer is None:
+        return None
+    if swimmer.athleteProfileId is None:
+        return browser_athlete_profile_detail(db, source_swimmer=swimmer)
+    return browser_athlete_profile_detail(db, swimmer.athleteProfileId)
 
 
 def browser_data_quality(db: Session, *, page: int = 1, limit: int = 50) -> dict[str, Any]:

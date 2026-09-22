@@ -15,12 +15,14 @@ from app.browser import (
     browser_meet,
     browser_overview,
     browser_swimmer_detail,
+    list_browser_athletes,
     list_browser_swimmers,
     make_event_key,
     no_time_warning,
     source_warning,
 )
 from app.database import Base
+from app.entity_resolution import backfill_athlete_profiles
 from app.models import Meet, ParseJob, RawDocument, RelayLeg, RelayResult, Result, Swimmer
 
 
@@ -139,6 +141,8 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
         RelayLeg(relayResultId=relay.id, legNumber=2, swimmerId=second.id, swimmerName=second.name, age=17, splitTime="24.70"),
     ])
     db.commit()
+    backfill_athlete_profiles(db)
+    db.commit()
     return {"meet": meet, "swimmer": swimmer, "second": second, "suspicious": suspicious, "relay": relay}
 
 
@@ -166,6 +170,39 @@ def test_browser_swimmer_list_deduplicates_same_meet_hybrid_card_aggregates_with
     assert len(statements) <= 4
 
 
+def test_browser_swimmer_list_aggregates_one_athlete_profile_across_ages():
+    db = _test_session()
+    seeded = _seed_browser_fixture(db)
+    swimmer = seeded["swimmer"]
+    profile_id = swimmer.athleteProfileId
+    aged_row = Swimmer(
+        name=swimmer.name,
+        nameKey="pung|zhientimothy",
+        teamKey="aquaticperformanceswimclub",
+        age=18,
+        team=swimmer.team,
+        athleteProfileId=profile_id,
+    )
+    db.add(aged_row)
+    db.flush()
+    db.add(Result(
+        swimmerId=aged_row.id,
+        meetId=seeded["meet"].id,
+        event="Men 15 & Over 200 LC Meter Freestyle",
+        time="2:00.00",
+        resultStatus="finished",
+        swimDate=datetime(2026, 3, 19),
+    ))
+    db.commit()
+
+    payload = list_browser_athletes(db, q="Pung", limit=100)
+
+    assert payload["pagination"]["total"] == 1
+    assert payload["data"][0]["athlete_profile_id"] == profile_id
+    assert payload["data"][0]["ages"] == [17, 18]
+    assert payload["data"][0]["individual_result_count"] == 3
+
+
 def test_browser_swimmer_list_includes_relay_only_card_aggregates():
     db = _test_session()
     meet = Meet(name="Relay Only Meet", startDate=datetime(2026, 7, 1), parserFormat="hytek")
@@ -190,6 +227,8 @@ def test_browser_swimmer_list_includes_relay_only_card_aggregates():
         swimmerName=swimmer.name,
         age=swimmer.age,
     ))
+    db.commit()
+    backfill_athlete_profiles(db)
     db.commit()
 
     row = list_browser_swimmers(db)["data"][0]
@@ -219,11 +258,13 @@ def test_browser_swimmer_list_latest_meet_is_scoped_to_each_swimmer_on_tied_date
         RelayLeg(relayResultId=relay_b.id, legNumber=1, swimmerId=swimmer_b.id, swimmerName=swimmer_b.name),
     ])
     db.commit()
+    backfill_athlete_profiles(db)
+    db.commit()
 
-    rows = {row["id"]: row for row in list_browser_swimmers(db, limit=100)["data"]}
+    rows = {row["name"]: row for row in list_browser_swimmers(db, limit=100)["data"]}
 
-    assert rows[swimmer_a.id]["latest_meet"]["id"] == meet_a.id
-    assert rows[swimmer_b.id]["latest_meet"]["id"] == meet_b.id
+    assert rows[swimmer_a.name]["latest_meet"]["id"] == meet_a.id
+    assert rows[swimmer_b.name]["latest_meet"]["id"] == meet_b.id
 
 
 def test_browser_meet_returns_event_index_not_full_rows():
@@ -387,6 +428,35 @@ def test_browser_swimmer_detail_keeps_relay_history_out_of_pbs():
     assert payload["relay_history"][0]["row_type"] == "relay"
 
 
+def test_browser_unlinked_source_swimmer_keeps_its_legacy_detail_route():
+    db = _test_session()
+    meet = Meet(name="Evidence Gaps Meet", startDate=datetime(2026, 7, 1), parserFormat="hytek")
+    swimmer = Swimmer(name="Unknown, Club", age=15, team=None)
+    db.add_all([meet, swimmer])
+    db.flush()
+    db.add(Result(
+        swimmerId=swimmer.id,
+        meetId=meet.id,
+        event="Girls 50 LC Meter Freestyle",
+        time="30.00",
+        resultStatus="finished",
+        swimDate=datetime(2026, 7, 1),
+    ))
+    db.commit()
+
+    payload = browser_swimmer_detail(db, swimmer.id)
+
+    assert payload is not None
+    assert payload["swimmer"]["source_swimmer_id"] == swimmer.id
+    assert payload["swimmer"]["identity_status"] == "source_row_unlinked"
+    assert payload["stats"]["individual_result_count"] == 1
+    catalogue = list_browser_athletes(db)
+    assert catalogue["pagination"]["total"] == 1
+    assert catalogue["data"][0]["source_swimmer_id"] == swimmer.id
+    assert catalogue["data"][0]["athlete_profile_id"] is None
+    assert browser_overview(db)["counts"]["swimmers"] == 1
+
+
 def test_browser_swimmer_detail_includes_relay_only_meets_and_events_in_generic_totals():
     db = _test_session()
     meet = Meet(name="Relay Only Meet", startDate=datetime(2026, 7, 1), parserFormat="hytek")
@@ -411,6 +481,8 @@ def test_browser_swimmer_detail_includes_relay_only_meets_and_events_in_generic_
         swimmerName=swimmer.name,
         age=swimmer.age,
     ))
+    db.commit()
+    backfill_athlete_profiles(db)
     db.commit()
 
     payload = browser_swimmer_detail(db, swimmer.id)

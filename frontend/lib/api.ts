@@ -333,7 +333,27 @@ export interface BrowserOverview {
   };
 }
 
-export interface BrowserSwimmerListItem extends BrowserSwimmerBrief {
+export interface BrowserAthleteProfileBrief {
+  athlete_profile_id: number | null;
+  source_swimmer_id: number | null;
+  name: string;
+  team: string;
+  ages: number[];
+  /** Derived exact-name-and-club grouping; not a verified athlete registry. */
+  identity_status: "derived_name_and_club" | "source_row_unlinked";
+}
+
+export interface BrowserSwimmerListItem extends BrowserAthleteProfileBrief {
+  individual_result_count: number;
+  relay_result_count: number;
+  meet_count: number;
+  event_count: number;
+  latest_meet: BrowserMeetBrief | null;
+  warning_count: number;
+  warnings: BrowserWarning[];
+}
+
+export interface BrowserSourceSwimmerListItem extends BrowserSwimmerBrief {
   individual_result_count: number;
   relay_result_count: number;
   meet_count: number;
@@ -428,7 +448,7 @@ export interface BrowserRelayRow {
 export type BrowserEventRow = BrowserIndividualRow | BrowserRelayRow;
 
 export interface BrowserSwimmerDetail {
-  swimmer: BrowserSwimmerBrief;
+  swimmer: BrowserAthleteProfileBrief;
   stats: {
     individual_result_count: number;
     relay_result_count: number;
@@ -519,7 +539,7 @@ export async function listBrowserMeets(
   return apiFetch(`/browser/meets?${q}`);
 }
 
-export async function listBrowserSwimmers(
+export async function listBrowserAthletes(
   params: BrowserSwimmerListParams = {}
 ): Promise<PaginatedResponse<BrowserSwimmerListItem>> {
   const q = new URLSearchParams();
@@ -531,7 +551,26 @@ export async function listBrowserSwimmers(
   if (params.has_warnings !== undefined) q.set("has_warnings", String(params.has_warnings));
   if (params.sort) q.set("sort", params.sort);
   if (params.order) q.set("order", params.order);
+  return apiFetch(`/browser/athletes?${q}`);
+}
+
+export async function listBrowserSwimmers(
+  params: BrowserSwimmerListParams = {}
+): Promise<PaginatedResponse<BrowserSourceSwimmerListItem>> {
+  const q = new URLSearchParams();
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.q) q.set("q", params.q);
+  if (params.team) q.set("team", params.team);
+  if (params.min_results !== undefined) q.set("min_results", String(params.min_results));
+  if (params.has_warnings !== undefined) q.set("has_warnings", String(params.has_warnings));
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
   return apiFetch(`/browser/swimmers?${q}`);
+}
+
+export async function getBrowserAthlete(id: number): Promise<BrowserSwimmerDetail> {
+  return apiFetch(`/browser/athletes/${id}`);
 }
 
 export async function getBrowserSwimmer(id: number): Promise<BrowserSwimmerDetail> {

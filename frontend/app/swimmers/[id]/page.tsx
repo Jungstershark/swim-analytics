@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   displayName,
   resultDisplayValue,
+  getBrowserAthlete,
   getBrowserSwimmer,
   type BrowserSwimmerDetail,
   type BrowserIndividualRow,
@@ -27,7 +28,10 @@ function SwimmerProfileContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const swimmerId = Number(params.id);
+  const swimmerRef = String(params.id || "");
+  const athleteMatch = /^a-(\d+)$/.exec(swimmerRef);
+  const athleteProfileId = athleteMatch ? Number(athleteMatch[1]) : null;
+  const sourceSwimmerId = athleteMatch ? null : Number(swimmerRef);
   const [detail, setDetail] = useState<BrowserSwimmerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,11 +43,13 @@ function SwimmerProfileContent() {
 
   useEffect(() => {
     if (requestedCourse === null || COURSE_PARAMS.includes(requestedCourse as CourseParam)) return;
-    router.replace(`/swimmers/${swimmerId}`, { scroll: false });
-  }, [requestedCourse, router, swimmerId]);
+    router.replace(`/swimmers/${swimmerRef}`, { scroll: false });
+  }, [requestedCourse, router, swimmerRef]);
 
   useEffect(() => {
-    if (!Number.isInteger(swimmerId) || swimmerId <= 0) {
+    const validProfile = athleteProfileId !== null && Number.isInteger(athleteProfileId) && athleteProfileId > 0;
+    const validLegacy = sourceSwimmerId !== null && Number.isInteger(sourceSwimmerId) && sourceSwimmerId > 0;
+    if (!validProfile && !validLegacy) {
       setDetail(null);
       setError("Swimmer not found");
       setLoading(false);
@@ -51,11 +57,14 @@ function SwimmerProfileContent() {
     }
     setLoading(true);
     setError("");
-    getBrowserSwimmer(swimmerId)
+    const request = validProfile
+      ? getBrowserAthlete(athleteProfileId)
+      : getBrowserSwimmer(sourceSwimmerId as number);
+    request
       .then(setDetail)
       .catch((e) => setError(e.message || "Failed to load swimmer"))
       .finally(() => setLoading(false));
-  }, [swimmerId]);
+  }, [athleteProfileId, sourceSwimmerId]);
 
   if (loading) return <LoadingShell />;
 
@@ -81,7 +90,7 @@ function SwimmerProfileContent() {
     else next.delete("course");
     const query = next.toString();
     setOpenEvent(null);
-    router.push(`/swimmers/${swimmerId}${query ? `?${query}` : ""}`);
+    router.push(`/swimmers/${swimmerRef}${query ? `?${query}` : ""}`);
   }
 
   return (
@@ -103,7 +112,7 @@ function SwimmerProfileContent() {
                 {detail.stats.warning_count > 0 && <span className="text-xs font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">{detail.stats.warning_count} data warning</span>}
               </div>
               <p className="text-gray-500 text-sm mt-1">
-                {swimmer.team || "No team"}{swimmer.age ? ` · Age ${swimmer.age}` : ""}
+                {swimmer.team || "No team"}{swimmer.ages.length > 0 ? ` · ${swimmer.ages.length === 1 ? "Age" : "Ages"} ${swimmer.ages.join(", ")}` : ""}
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

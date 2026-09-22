@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
 from app.entity_resolution import (
+    backfill_athlete_profiles,
     merge_duplicate_swimmers,
     normalize_name,
     normalize_team,
@@ -15,7 +16,7 @@ from app.entity_resolution import (
     resolve_swimmer,
     resolve_team,
 )
-from app.models import Meet, RelayLeg, RelayResult, Result, Swimmer, TeamAlias, TeamCanon
+from app.models import AthleteProfile, Meet, RelayLeg, RelayResult, Result, Swimmer, TeamAlias, TeamCanon
 
 
 def _test_session() -> Session:
@@ -135,11 +136,13 @@ def test_canonical_promotion_updates_existing_display_rows():
 
     assert swimmer.team == "Xavier SchoolSwimClub"
     assert relay.teamName == "Xavier SchoolSwimClub"
+    profile_id = swimmer.athleteProfileId
 
     assert resolve_team(db, "Xavier School Swim Club") == "Xavier School Swim Club"
     db.refresh(swimmer)
     db.refresh(relay)
     assert swimmer.team == "Xavier School Swim Club"
+    assert db.get(AthleteProfile, profile_id).team == "Xavier School Swim Club"
     assert relay.teamName == "Xavier School Swim Club"
 
 
@@ -185,6 +188,47 @@ def test_resolve_swimmer_keeps_same_team_name_collision_separate_by_age():
     assert created is True
     assert older.id != younger.id
     assert db.query(Swimmer).count() == 2
+
+
+def test_athlete_profile_combines_same_name_and_club_across_ages_only():
+    db = _test_session()
+    age_24, _ = resolve_swimmer(db, "Ong, Jung Yi", 24, "Chinese Swimming Club S'Pore")
+    age_25, _ = resolve_swimmer(db, "ong, jung yi", 25, "Chinese Swimming Club S'Pore")
+    transferred, _ = resolve_swimmer(db, "Ong, Jung Yi", 26, "Another Club")
+
+    assert age_24.id != age_25.id
+    assert age_24.athleteProfileId == age_25.athleteProfileId
+    assert transferred.athleteProfileId != age_24.athleteProfileId
+    assert db.query(AthleteProfile).count() == 2
+
+
+def test_athlete_profile_rejects_malformed_identity_keys():
+    db = _test_session()
+    db.add(AthleteProfile(name="Unknown", nameKey="|", team="Club", teamKey="club"))
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()
+    db.add(AthleteProfile(name="Known, Swimmer", nameKey="known|swimmer", team="Club", teamKey=""))
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_athlete_profile_backfill_links_source_rows_without_merging_them():
+    db = _test_session()
+    rows = [
+        Swimmer(name="Ong, Jung Yi", nameKey="ong|jungyi", teamKey="chineseswimmingclubspore", age=24, team="Chinese Swimming Club S'pore"),
+        Swimmer(name="Ong, Jung Yi", nameKey="ong|jungyi", teamKey="chineseswimmingclubspore", age=25, team="Chinese Swimming Club S'pore"),
+        Swimmer(name="Ong, Jung Yi", nameKey="ong|jungyi", teamKey="anotherclub", age=26, team="Another Club"),
+    ]
+    db.add_all(rows)
+    db.flush()
+
+    report = backfill_athlete_profiles(db)
+
+    assert report == {"created_profiles": 2, "linked_rows": 3, "skipped_rows": 0}
+    assert db.query(Swimmer).count() == 3
+    assert rows[0].athleteProfileId == rows[1].athleteProfileId
+    assert rows[2].athleteProfileId != rows[0].athleteProfileId
 
 
 def test_resolve_swimmer_keeps_missing_identity_evidence_separate():

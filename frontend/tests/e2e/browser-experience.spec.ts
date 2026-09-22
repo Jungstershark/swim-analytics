@@ -37,7 +37,8 @@ const overview = {
 const swimmer = {
   id: 7,
   name: malformedSwimmerName,
-  age: 15,
+  ages: [15],
+  identity_status: "derived_name_and_club",
   team: "Singapore Swimming Club with an intentionally long imported team label",
   individual_result_count: 22,
   relay_result_count: 4,
@@ -75,7 +76,7 @@ async function json(route: Route, body: unknown, status = 200) {
 
 async function stubSharedApis(page: Page) {
   await page.route("**/api/browser/overview", (route) => json(route, overview));
-  await page.route("**/api/browser/swimmers**", (route) =>
+  await page.route("**/api/browser/athletes**", (route) =>
     json(route, { data: [swimmer], pagination: pagination() }),
   );
   await page.route("**/api/browser/meets**", (route) =>

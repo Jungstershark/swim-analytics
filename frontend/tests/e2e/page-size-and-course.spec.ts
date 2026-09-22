@@ -29,7 +29,7 @@ const result = {
 
 function browserSwimmer(id = 7, name = "Tan, Alice") {
   return {
-    id, name, age: 15, team: "Sharks", individual_result_count: 4, relay_result_count: 0,
+    id, name, ages: [15], identity_status: "derived_name_and_club", team: "Sharks", individual_result_count: 4, relay_result_count: 0,
     meet_count: 2, event_count: 2, latest_meet: meet, warning_count: 0, warnings: [],
   };
 }
@@ -88,7 +88,7 @@ test("Results owns supported page size in the URL, resets page, and omits the de
 test("Swimmers and Meets serialize supported page size, reset pages, and canonicalize invalid limits", async ({ page }) => {
   const swimmerRequests: URL[] = [];
   const meetRequests: URL[] = [];
-  await page.route("**/api/browser/swimmers**", async (route) => {
+  await page.route("**/api/browser/athletes**", async (route) => {
     const request = new URL(route.request().url());
     swimmerRequests.push(request);
     const limit = Number(request.searchParams.get("limit"));
@@ -142,7 +142,7 @@ test("Swimmer all-courses view keeps course headings and PBs separate, with URL-
   const lcmEvent = { course: "LCM" as const, distance_m: 100, stroke: "Freestyle", event: "100m Freestyle", canonical_event_key: "100-free", normalization_status: "normalized", source_event_labels: ["100 Free"], performance_count: 2, finished_performance_count: 2, fastest_recorded: { ...result, id: 10, time: "1:00.00", source: { document_sha256: "a" }, warnings: [], splits: [] }, split_coverage: { available: 0, total: 2 }, performances: [] };
   const scmEvent = { ...lcmEvent, course: "SCM" as const, fastest_recorded: { ...lcmEvent.fastest_recorded, id: 11, time: "0:58.00" } };
   await page.route("**/api/browser/swimmers/7", (route) => json(route, {
-    swimmer: result.swimmer,
+    swimmer: { id: 7, name: "Tan, Alice", team: "Sharks", ages: [15], identity_status: "derived_name_and_club" },
     stats: { individual_result_count: 4, relay_result_count: 0, meet_count: 2, event_count: 2, warning_count: 0 },
     personal_bests: [], event_history: [],
     course_history: [{ course: "LCM", event_count: 1, events: [lcmEvent] }, { course: "SCM", event_count: 1, events: [scmEvent] }],

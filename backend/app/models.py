@@ -306,6 +306,36 @@ class TeamAlias(Base):
     )
 
 
+class AthleteProfile(Base):
+    """A browser-facing athlete identity, separate from source-faithful rows.
+
+    A profile is deliberately limited to an exact normalized name and canonical
+    club. It can safely join the same athlete across reported ages while leaving
+    club transfers and same-name ambiguity for explicit future review.
+    """
+
+    __tablename__ = "AthleteProfile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    nameKey: Mapped[str] = mapped_column(String, nullable=False)
+    team: Mapped[str] = mapped_column(String, nullable=False)
+    teamKey: Mapped[str] = mapped_column(String, nullable=False)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    swimmerRows: Mapped[list["Swimmer"]] = relationship(back_populates="athleteProfile")
+
+    __table_args__ = (
+        UniqueConstraint("nameKey", "teamKey", name="AthleteProfile_identity_uq"),
+        CheckConstraint('"nameKey" <> \'\' AND "nameKey" <> \'|\'', name="AthleteProfile_name_key_ck"),
+        CheckConstraint('"teamKey" <> \'\'', name="AthleteProfile_team_key_ck"),
+        Index("AthleteProfile_name_idx", "name"),
+        Index("AthleteProfile_nameKey_idx", "nameKey"),
+        Index("AthleteProfile_team_idx", "team"),
+    )
+
+
 class Swimmer(Base):
     __tablename__ = "Swimmer"
 
@@ -315,14 +345,19 @@ class Swimmer(Base):
     teamKey: Mapped[str | None] = mapped_column(String, nullable=True)  # normalized team identity key
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     team: Mapped[str | None] = mapped_column(String, nullable=True)
+    athleteProfileId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("AthleteProfile.id", ondelete="SET NULL"), nullable=True
+    )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     results: Mapped[list["Result"]] = relationship(back_populates="swimmer", cascade="all, delete-orphan")
+    athleteProfile: Mapped["AthleteProfile | None"] = relationship(back_populates="swimmerRows")
 
     __table_args__ = (
         Index("Swimmer_name_idx", "name"),
         Index("Swimmer_nameKey_idx", "nameKey"),
+        Index("Swimmer_athleteProfile_idx", "athleteProfileId"),
         Index(
             "Swimmer_identity_uq",
             "nameKey",

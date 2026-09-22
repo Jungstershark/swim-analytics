@@ -5,7 +5,8 @@ const malformedSwimmerName = "Abdul Khair, Daria Suhayr3 W) r1:02.53 Mark, Ivan 
 const swimmer = {
   id: 7,
   name: malformedSwimmerName,
-  age: 15,
+  ages: [15],
+  identity_status: "derived_name_and_club",
   team: "Singapore Swimming Club with an intentionally long imported team label",
   individual_result_count: 22,
   relay_result_count: 4,
@@ -59,7 +60,7 @@ test("Swimmers restores URL-owned catalogue state across refresh and history wit
   const browserErrors = collectBrowserErrors(page);
   const requests: URL[] = [];
 
-  await page.route("**/api/browser/swimmers**", async (route) => {
+  await page.route("**/api/browser/athletes**", async (route) => {
     const requestUrl = new URL(route.request().url());
     requests.push(requestUrl);
     const requestedPage = Number(requestUrl.searchParams.get("page") || "1");
@@ -148,7 +149,7 @@ test("Swimmers ignores a delayed stale response after URL state changes", async 
   const slowResponseGate = new Promise<void>((resolve) => { releaseSlowResponse = resolve; });
   const slowRequested = new Promise<void>((resolve) => { markSlowRequested = resolve; });
 
-  await page.route("**/api/browser/swimmers**", async (route) => {
+  await page.route("**/api/browser/athletes**", async (route) => {
     const requestUrl = new URL(route.request().url());
     requests.push(requestUrl);
     const query = requestUrl.searchParams.get("q");
@@ -189,7 +190,7 @@ test("Swimmers ignores a delayed stale response after URL state changes", async 
 
 test("Swimmers merges independently debounced name and team filters", async ({ page }) => {
   const browserErrors = collectBrowserErrors(page);
-  await page.route("**/api/browser/swimmers**", (route) =>
+  await page.route("**/api/browser/athletes**", (route) =>
     json(route, {
       data: [{ ...swimmer, id: 72, name: "Merged state swimmer" }],
       pagination: { page: 1, limit: 50, total: 1, total_pages: 1 },
@@ -212,7 +213,7 @@ test("Swimmers merges rapid control changes into one current URL state", async (
   const browserErrors = collectBrowserErrors(page);
   const requests: URL[] = [];
 
-  await page.route("**/api/browser/swimmers**", async (route) => {
+  await page.route("**/api/browser/athletes**", async (route) => {
     const requestUrl = new URL(route.request().url());
     requests.push(requestUrl);
     await json(route, {
@@ -236,7 +237,7 @@ test("Swimmers merges rapid control changes into one current URL state", async (
 });
 
 test("Swimmers cancels a pending name debounce when Back restores history", async ({ page }) => {
-  await page.route("**/api/browser/swimmers**", (route) =>
+  await page.route("**/api/browser/athletes**", (route) =>
     json(route, {
       data: [{ ...swimmer, id: 73, name: "History swimmer" }],
       pagination: { page: 1, limit: 50, total: 1, total_pages: 1 },

@@ -36,7 +36,9 @@ from .browser import (
     browser_event,
     browser_meet,
     browser_overview,
+    browser_athlete_profile_detail,
     browser_swimmer_detail,
+    list_browser_athletes,
     list_browser_meets,
     list_browser_swimmers,
 )
@@ -1720,6 +1722,39 @@ def get_browser_swimmers(
         sort=sort,
         order=order,
     )
+
+
+@app.get("/api/browser/athletes")
+def get_browser_athletes(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    q: Optional[str] = None,
+    team: Optional[str] = None,
+    min_results: Optional[int] = Query(None, ge=0),
+    has_warnings: Optional[bool] = None,
+    sort: str = Query("name", pattern="^(name|team|result_count|latest_meet)$"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    return list_browser_athletes(
+        db,
+        page=page,
+        limit=limit,
+        q=q,
+        team=team,
+        min_results=min_results,
+        has_warnings=has_warnings,
+        sort=sort,
+        order=order,
+    )
+
+
+@app.get("/api/browser/athletes/{athlete_profile_id}")
+def get_browser_athlete(athlete_profile_id: int, db: Session = Depends(get_db)):
+    payload = browser_athlete_profile_detail(db, athlete_profile_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Athlete profile not found")
+    return payload
 
 
 @app.get("/api/browser/swimmers/{swimmer_id}")

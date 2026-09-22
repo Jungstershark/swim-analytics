@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   displayName,
-  listBrowserSwimmers,
+  listBrowserAthletes,
   type BrowserSwimmerListItem,
   type PaginationInfo,
 } from "@/lib/api";
@@ -102,7 +102,7 @@ function SwimmersContent() {
       setLoading(true);
       setError("");
       try {
-        const response = await listBrowserSwimmers({
+        const response = await listBrowserAthletes({
           page,
           limit,
           q: q || undefined,
@@ -161,6 +161,18 @@ function SwimmersContent() {
   const responseLimit = pagination?.limit ?? limit;
   const showingFrom = totalResults === 0 ? 0 : (responsePage - 1) * responseLimit + 1;
   const showingTo = Math.min(responsePage * responseLimit, totalResults);
+
+  function swimmerHref(swimmer: BrowserSwimmerListItem) {
+    return swimmer.athlete_profile_id !== null
+      ? `/swimmers/a-${swimmer.athlete_profile_id}`
+      : `/swimmers/${swimmer.source_swimmer_id}`;
+  }
+
+  function swimmerKey(swimmer: BrowserSwimmerListItem) {
+    return swimmer.athlete_profile_id !== null
+      ? `athlete-${swimmer.athlete_profile_id}`
+      : `source-${swimmer.source_swimmer_id}`;
+  }
 
   return (
     <div className="min-h-screen min-w-0">
@@ -265,7 +277,7 @@ function SwimmersContent() {
                 <div className="h-4 w-96 max-w-full rounded bg-gray-100" />
               </div>
             )) : swimmers.map((swimmer) => (
-              <a key={swimmer.id} href={`/swimmers/${swimmer.id}`} className="card block min-w-0 max-w-full p-4 transition-all hover:border-ssa-teal/40 hover:shadow-md">
+              <a key={swimmerKey(swimmer)} href={swimmerHref(swimmer)} className="card block min-w-0 max-w-full p-4 transition-all hover:border-ssa-teal/40 hover:shadow-md">
                 <div className="flex min-w-0 max-w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 max-w-full overflow-hidden">
                     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
@@ -277,7 +289,7 @@ function SwimmersContent() {
                       )}
                     </div>
                     <p className="mt-1 min-w-0 max-w-full truncate text-sm text-gray-500">
-                      {swimmer.team || "No team"}{swimmer.age ? ` · Age ${swimmer.age}` : ""}
+                      {swimmer.team || "No team"}{swimmer.ages.length > 0 ? ` · ${swimmer.ages.length === 1 ? "Age" : "Ages"} ${swimmer.ages.join(", ")}` : ""}
                     </p>
                   </div>
                   <div className="grid min-w-0 max-w-full grid-cols-2 gap-2 text-center sm:grid-cols-5 lg:min-w-[520px]">

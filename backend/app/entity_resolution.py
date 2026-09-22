@@ -30,9 +30,10 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import RelayLeg, RelayResult, Result, Swimmer, TeamAlias, TeamCanon
+from .models import AthleteProfile, RelayLeg, RelayResult, Result, Swimmer, TeamAlias, TeamCanon
 
 # Trailing three-letter country/region tag, possibly truncated by the PDF text
 # layer: " (Phi)", " (Phi", " (Can)", " (Tpe)", "(THA-US". Restricting
@@ -158,6 +159,9 @@ def resolve_team(db: Session, raw_team: str | None) -> str:
             db.query(Swimmer).filter(Swimmer.teamKey == key).update(
                 {Swimmer.team: better}, synchronize_session="fetch"
             )
+            db.query(AthleteProfile).filter(AthleteProfile.teamKey == key).update(
+                {AthleteProfile.team: better}, synchronize_session="fetch"
+            )
             db.query(RelayResult).filter(RelayResult.teamName == old_canonical).update(
                 {RelayResult.teamName: better}, synchronize_session="fetch"
             )
@@ -181,14 +185,99 @@ def resolve_team(db: Session, raw_team: str | None) -> str:
     return canon.canonicalName
 
 
+def resolve_athlete_profile(
+    db: Session,
+    *,
+    name: str | None,
+    name_key: str,
+    team: str | None,
+    team_key: str,
+) -> AthleteProfile | None:
+    """Find or create a browser profile for one exact name-and-club identity.
+
+    This is intentionally narrower than a person-level identity service. It
+    joins source rows across reported ages only when both normalized name and
+    canonicalized club agree; club transfers stay separate unless later reviewed.
+    """
+    if not name_key.replace("|", "") or not team_key or not name or not team:
+        return None
+    profile = db.query(AthleteProfile).filter(
+        AthleteProfile.nameKey == name_key,
+        AthleteProfile.teamKey == team_key,
+    ).first()
+    if profile is None:
+        candidate = AthleteProfile(name=name, nameKey=name_key, team=team, teamKey=team_key)
+        try:
+            # The unique constraint is the final concurrency guard. A nested
+            # transaction lets a concurrent importer win without poisoning the
+            # caller's wider ingestion transaction.
+            with db.begin_nested():
+                db.add(candidate)
+                db.flush()
+        except IntegrityError:
+            profile = db.query(AthleteProfile).filter(
+                AthleteProfile.nameKey == name_key,
+                AthleteProfile.teamKey == team_key,
+            ).first()
+            if profile is None:
+                raise
+        else:
+            return candidate
+    better_name = pick_better_canonical(profile.name, name)
+    if better_name != profile.name:
+        profile.name = better_name
+    if profile.team != team:
+        profile.team = team
+    return profile
+
+
+def backfill_athlete_profiles(db: Session) -> dict[str, int]:
+    """Attach every complete source row to its exact name-and-club profile.
+
+    The function only creates profiles and writes ``Swimmer.athleteProfileId``.
+    It never merges source rows, results, or relay legs.
+    """
+    created_profiles = 0
+    linked_rows = 0
+    skipped_rows = 0
+    existing_keys = {
+        (profile.nameKey, profile.teamKey)
+        for profile in db.query(AthleteProfile.nameKey, AthleteProfile.teamKey).all()
+    }
+    for swimmer in db.query(Swimmer).order_by(Swimmer.id).all():
+        name_key = swimmer.nameKey or normalize_name(swimmer.name)
+        team_key = swimmer.teamKey or normalize_team(swimmer.team)
+        profile = resolve_athlete_profile(
+            db,
+            name=swimmer.name,
+            name_key=name_key,
+            team=swimmer.team,
+            team_key=team_key,
+        )
+        if profile is None:
+            skipped_rows += 1
+            continue
+        if (name_key, team_key) not in existing_keys:
+            created_profiles += 1
+            existing_keys.add((name_key, team_key))
+        if swimmer.athleteProfileId != profile.id:
+            swimmer.athleteProfileId = profile.id
+            linked_rows += 1
+    db.flush()
+    return {
+        "created_profiles": created_profiles,
+        "linked_rows": linked_rows,
+        "skipped_rows": skipped_rows,
+    }
+
+
 def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: str | None) -> tuple[Swimmer, bool]:
     """Find (or create) the Swimmer for a result/leg row.
 
     Identity is normalized surname/given-name structure plus normalized team and
-    reported age. Using keys (not display strings) merges Xavier spelling variants
-    for the same meet, while age equality avoids destructively merging two genuine
-    same-name swimmers from one club. This is deliberately conservative: aging and
-    team transfers remain for a future authoritative AthleteIdentity model.
+    reported age. Using keys (not display strings) merges source spelling variants
+    for the same competition row. A separate exact name-and-club AthleteProfile
+    then joins these source rows across reported ages for browser display.
 
     The stored ``team`` is the canonical display name, refreshed on each hit so it
     converges to the best spelling as the registry is promoted.
@@ -200,6 +289,13 @@ def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: st
         raise ValueError("Cannot resolve swimmer without a non-empty name")
     team_key = normalize_team(raw_team)
     team_display = resolve_team(db, raw_team)
+    athlete_profile = resolve_athlete_profile(
+        db,
+        name=name,
+        name_key=name_key,
+        team=team_display,
+        team_key=team_key,
+    )
 
     # Fail closed when age or team evidence is missing: exact source re-imports
     # are filtered by content hash before resolution, but ambiguous new records
@@ -212,12 +308,21 @@ def resolve_swimmer(db: Session, name: str | None, age: int | None, raw_team: st
             Swimmer.age == age,
         ).first()
     if swimmer is None:
-        swimmer = Swimmer(name=name or "", nameKey=name_key, teamKey=team_key, age=age, team=team_display)
+        swimmer = Swimmer(
+            name=name or "",
+            nameKey=name_key,
+            teamKey=team_key,
+            age=age,
+            team=team_display,
+            athleteProfileId=athlete_profile.id if athlete_profile else None,
+        )
         db.add(swimmer)
         db.flush()
         return swimmer, True
     if swimmer.team != team_display:
         swimmer.team = team_display
+    if swimmer.athleteProfileId != (athlete_profile.id if athlete_profile else None):
+        swimmer.athleteProfileId = athlete_profile.id if athlete_profile else None
     return swimmer, False
 
 
