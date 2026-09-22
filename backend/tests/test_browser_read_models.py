@@ -23,7 +23,7 @@ from app.browser import (
 )
 from app.database import Base
 from app.entity_resolution import backfill_athlete_profiles
-from app.models import Meet, ParseJob, RawDocument, RelayLeg, RelayResult, Result, Swimmer
+from app.models import AthleteProfile, Meet, ParseJob, RawDocument, RelayLeg, RelayResult, Result, Swimmer
 
 
 def _test_session() -> Session:
@@ -144,6 +144,26 @@ def _seed_browser_fixture(db: Session) -> dict[str, object]:
     backfill_athlete_profiles(db)
     db.commit()
     return {"meet": meet, "swimmer": swimmer, "second": second, "suspicious": suspicious, "relay": relay}
+
+
+def test_browser_athlete_catalogue_excludes_orphans_and_keeps_undated_cards_last():
+    db = _test_session()
+    _seed_browser_fixture(db)
+    orphan = AthleteProfile(name="Ghost, Profile", nameKey="ghost|profile", team="Nowhere", teamKey="nowhere")
+    undated = AthleteProfile(name="Zulu, Undated", nameKey="zulu|undated", team="Nowhere", teamKey="nowhere")
+    db.add_all([orphan, undated])
+    db.flush()
+    db.add(Swimmer(name="Zulu, Undated", age=16, team="Nowhere", athleteProfileId=undated.id))
+    db.commit()
+
+    payload = list_browser_athletes(db, sort="latest_meet", order="asc", limit=100)
+    profile_ids = [row["athlete_profile_id"] for row in payload["data"]]
+    assert orphan.id not in profile_ids
+    assert payload["data"][-1]["athlete_profile_id"] == undated.id
+    first_page = list_browser_athletes(db, sort="name", limit=1, page=1)
+    second_page = list_browser_athletes(db, sort="name", limit=1, page=2)
+    assert first_page["pagination"]["total"] == payload["pagination"]["total"]
+    assert first_page["data"][0] != second_page["data"][0]
 
 
 def test_browser_swimmer_list_deduplicates_same_meet_hybrid_card_aggregates_without_per_row_loop():
