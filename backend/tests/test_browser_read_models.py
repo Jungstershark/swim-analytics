@@ -160,10 +160,33 @@ def test_browser_athlete_catalogue_excludes_orphans_and_keeps_undated_cards_last
     profile_ids = [row["athlete_profile_id"] for row in payload["data"]]
     assert orphan.id not in profile_ids
     assert payload["data"][-1]["athlete_profile_id"] == undated.id
+    assert browser_overview(db)["counts"]["swimmers"] == payload["pagination"]["total"]
     first_page = list_browser_athletes(db, sort="name", limit=1, page=1)
     second_page = list_browser_athletes(db, sort="name", limit=1, page=2)
     assert first_page["pagination"]["total"] == payload["pagination"]["total"]
     assert first_page["data"][0] != second_page["data"][0]
+
+
+
+
+def test_browser_athlete_catalogue_uses_stable_unique_tie_breaker_for_same_name_profiles():
+    db = _test_session()
+    profiles = [
+        AthleteProfile(name="Tan, Alex", nameKey="tan|alex", team="Club A", teamKey="club|a"),
+        AthleteProfile(name="Tan, Alex", nameKey="tan|alex", team="Club B", teamKey="club|b"),
+    ]
+    db.add_all(profiles)
+    db.flush()
+    db.add_all([
+        Swimmer(name="Tan, Alex", age=15, team="Club A", athleteProfileId=profiles[0].id),
+        Swimmer(name="Tan, Alex", age=16, team="Club B", athleteProfileId=profiles[1].id),
+    ])
+    db.commit()
+
+    first = list_browser_athletes(db, q="Tan, Alex", sort="name", limit=1, page=1)
+    second = list_browser_athletes(db, q="Tan, Alex", sort="name", limit=1, page=2)
+    assert first["pagination"]["total"] == 2
+    assert [first["data"][0]["athlete_profile_id"], second["data"][0]["athlete_profile_id"]] == sorted(profile.id for profile in profiles)
 
 
 def test_browser_swimmer_list_deduplicates_same_meet_hybrid_card_aggregates_without_per_row_loop():

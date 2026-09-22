@@ -386,7 +386,8 @@ def list_browser_athletes(
         "latest_meet": candidates.c.latest_date,
     }.get(sort, candidates.c.name)
     order_column = sort_column.desc().nullslast() if order == "desc" else sort_column.asc().nullslast()
-    rows = query.order_by(order_column, candidates.c.name.asc(), candidates.c.kind.asc()).offset((page - 1) * limit).limit(limit).all()
+    stable_id = func.coalesce(candidates.c.athlete_profile_id, candidates.c.source_swimmer_id)
+    rows = query.order_by(order_column, candidates.c.name.asc(), candidates.c.kind.asc(), stable_id.asc()).offset((page - 1) * limit).limit(limit).all()
 
     profile_ids = [row.athlete_profile_id for row in rows if row.kind == "profile"]
     source_ids = [row.source_swimmer_id for row in rows if row.kind == "source"]
@@ -657,7 +658,9 @@ def browser_overview(db: Session) -> dict[str, Any]:
         "counts": {
             "meets": db.query(Meet).count(),
             "swimmers": (
-                db.query(AthleteProfile).count()
+                db.query(AthleteProfile)
+                .filter(db.query(Swimmer.id).filter(Swimmer.athleteProfileId == AthleteProfile.id).exists())
+                .count()
                 + db.query(Swimmer).filter(Swimmer.athleteProfileId.is_(None)).count()
             ),
             "individual_results": db.query(Result).count(),
