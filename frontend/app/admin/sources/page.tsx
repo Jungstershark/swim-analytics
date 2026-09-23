@@ -64,6 +64,34 @@ function readinessPill(status: string) {
   );
 }
 
+function processingPill(status: AdminSourceEvent["processingStatus"]) {
+  const labels: Record<string, string> = {
+    results_not_imported: "Results ready · not imported",
+    waiting_for_results: "Waiting for official results",
+    source_changed_since_import: "Source changed since import",
+    imported_since_tracking: "Imported · unchanged since tracking",
+    imported_links_unchanged_bytes_unchecked: "Imported · links unchanged; PDF bytes unchecked",
+    imported_current: "Imported · matches source",
+    imported_without_manifest_baseline: "Imported · tracking baseline needed",
+    import_link_conflict: "Import link needs attention",
+  };
+  const classes: Record<string, string> = {
+    results_not_imported: "bg-ssa-teal/10 text-ssa-teal ring-ssa-teal/20",
+    waiting_for_results: "bg-blue-50 text-blue-700 ring-blue-200",
+    source_changed_since_import: "bg-amber-50 text-amber-700 ring-amber-200",
+    imported_since_tracking: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    imported_links_unchanged_bytes_unchecked: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    imported_current: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    imported_without_manifest_baseline: "bg-amber-50 text-amber-700 ring-amber-200",
+    import_link_conflict: "bg-red-50 text-red-700 ring-red-200",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${classes[status] || classes.waiting_for_results}`}>
+      {labels[status] || labels.waiting_for_results}
+    </span>
+  );
+}
+
 export default function AdminSourcesPage() {
   const [state, setState] = useState<LoadState>("loading");
   const [sources, setSources] = useState<AdminSourceSite[]>([]);
@@ -109,13 +137,23 @@ export default function AdminSourcesPage() {
     };
   }, []);
 
+  const importedEvents = useMemo(
+    () => events.filter((event) => ["imported_since_tracking", "imported_links_unchanged_bytes_unchecked", "imported_current", "imported_without_manifest_baseline"].includes(event.processingStatus)),
+    [events],
+  );
+  const reviewEvents = useMemo(
+    () => events.filter((event) => !["imported_since_tracking", "imported_links_unchanged_bytes_unchecked", "imported_current", "imported_without_manifest_baseline"].includes(event.processingStatus)),
+    [events],
+  );
+
   const totals = useMemo(() => {
     return {
       events: events.length,
-      resultReadyEvents: events.filter((event) => event.readinessStatus === "results_available").length,
+      reviewEvents: reviewEvents.length,
+      importedEvents: importedEvents.length,
       documents: events.reduce((sum, event) => sum + event.documentCount, 0),
     };
-  }, [events]);
+  }, [events, importedEvents, reviewEvents]);
 
   async function handleRun(ruleId: number) {
     setRunningRuleId(ruleId);
@@ -184,10 +222,10 @@ export default function AdminSourcesPage() {
               <div>
                 <p className="text-sm font-semibold text-ssa-teal">Official catalogue coverage</p>
                 <h2 className="mt-1 text-xl font-bold text-ssa-navy">
-                  {totals.resultReadyEvents.toLocaleString()} competition {totals.resultReadyEvents === 1 ? "page has" : "pages have"} possible result PDFs
+                  {totals.reviewEvents.toLocaleString()} competition {totals.reviewEvents === 1 ? "page needs" : "pages need"} review
                 </h2>
                 <p className="mt-1 max-w-2xl text-sm text-gray-600">
-                  This is the current SG Aquatics catalogue, including earlier competitions—not a list of newly announced competitions or work that must be done now. No results have been imported.
+                  Pages with results not yet imported, pages waiting for official files, and source changes stay visible here. Imported history is kept below for audit; when freshness was tracked, its current state is shown there. Catalogue checks never import results automatically.
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-3 text-center sm:min-w-[300px]">
@@ -319,55 +357,85 @@ export default function AdminSourcesPage() {
           </section>
         ))}
 
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-          <div className="xl:col-span-2 card overflow-hidden">
-            <div className="border-b border-gray-100 px-6 py-4">
-              <h2 className="font-semibold text-ssa-navy">Competition pages to review</h2>
-              <p className="text-sm text-gray-500 mt-1">Official SG Aquatics pages. “Result PDFs found” means documents are available to inspect—not that results have been imported.</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-100 text-sm">
-                <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th scope="col" className="px-4 py-3">Competition</th>
-                    <th scope="col" className="px-4 py-3">What we found</th>
-                    <th scope="col" className="px-4 py-3">Official documents</th>
-                    <th scope="col" className="px-4 py-3">Last checked</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {events.slice(0, 12).map((event) => (
-                    <tr key={event.id}>
-                      <td className="px-4 py-3 align-top">
-                        <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-navy hover:text-ssa-teal">
-                          {event.title}
-                        </a>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
-                          {event.sourceYear && <span>{event.sourceYear}</span>}
-                          <span>{event.isCurrentlyListed ? "Listed on SG Aquatics" : "Kept from an older catalogue page"}</span>
-                          <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-teal hover:text-ssa-teal-dark">Open official page ↗</a>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top">{readinessPill(event.readinessStatus)}</td>
-                      <td className="px-4 py-3 align-top text-gray-700">
-                        {event.documentCount} official document {event.documentCount === 1 ? "link" : "links"}<br />
-                        <span className="text-xs text-gray-500">
-                          {event.resultPdfCount > 0
-                            ? `${event.resultPdfCount} result PDF${event.resultPdfCount === 1 ? "" : "s"} to review`
-                            : "No result PDF found"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top text-gray-500">{formatDate(event.lastCheckedAt)}</td>
-                    </tr>
-                  ))}
-                  {events.length === 0 && (
+        <section className="grid grid-cols-1 gap-8 xl:grid-cols-3">
+          <div className="space-y-5 xl:col-span-2">
+            <div className="card overflow-hidden">
+              <div className="border-b border-gray-100 px-6 py-4">
+                <h2 className="font-semibold text-ssa-navy">Needs review</h2>
+                <p className="mt-1 text-sm text-gray-500">New results, pages awaiting official files, and source pages changed since their last acknowledged import.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100 text-sm">
+                  <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">No source events discovered yet.</td>
+                      <th scope="col" className="px-4 py-3">Competition</th>
+                      <th scope="col" className="px-4 py-3">Import status</th>
+                      <th scope="col" className="px-4 py-3">What we found</th>
+                      <th scope="col" className="px-4 py-3">Official documents</th>
+                      <th scope="col" className="px-4 py-3">Last checked</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {reviewEvents.map((event) => (
+                      <tr key={event.id}>
+                        <td className="px-4 py-3 align-top">
+                          <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-navy hover:text-ssa-teal">{event.title}</a>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                            {event.sourceYear && <span>{event.sourceYear}</span>}
+                            <span>{event.isCurrentlyListed ? "Listed on SG Aquatics" : "Kept from an older catalogue page"}</span>
+                            <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-teal hover:text-ssa-teal-dark">Open official page ↗</a>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">{processingPill(event.processingStatus)}</td>
+                        <td className="px-4 py-3 align-top">{readinessPill(event.readinessStatus)}</td>
+                        <td className="px-4 py-3 align-top text-gray-700">
+                          {event.documentCount} official document {event.documentCount === 1 ? "link" : "links"}<br />
+                          <span className="text-xs text-gray-500">{event.resultPdfCount > 0 ? `${event.resultPdfCount} result PDF${event.resultPdfCount === 1 ? "" : "s"}` : "No result PDF found"}</span>
+                        </td>
+                        <td className="px-4 py-3 align-top text-gray-500">{formatDate(event.lastCheckedAt)}</td>
+                      </tr>
+                    ))}
+                    {reviewEvents.length === 0 && (
+                      <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">Nothing currently needs review.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {importedEvents.length > 0 && (
+              <details className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <summary className="cursor-pointer px-6 py-4 text-sm font-semibold text-ssa-navy hover:bg-gray-50">
+                  Imported competitions ({importedEvents.length})
+                  <span className="ml-2 font-normal text-gray-500">Expand for history and tracked freshness</span>
+                </summary>
+                <div className="border-t border-gray-100 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-100 text-sm">
+                    <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th scope="col" className="px-4 py-3">Competition</th>
+                        <th scope="col" className="px-4 py-3">Import status</th>
+                        <th scope="col" className="px-4 py-3">Official documents</th>
+                        <th scope="col" className="px-4 py-3">Last checked</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {importedEvents.map((event) => (
+                        <tr key={event.id}>
+                          <td className="px-4 py-3 align-top">
+                            <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-navy hover:text-ssa-teal">{event.title}</a>
+                            <p className="mt-1 text-xs text-gray-500">{event.isCurrentlyListed ? "Listed on SG Aquatics" : "Kept from an older catalogue page"}</p>
+                          </td>
+                          <td className="px-4 py-3 align-top">{processingPill(event.processingStatus)}</td>
+                          <td className="px-4 py-3 align-top text-gray-700">{event.documentCount} official document {event.documentCount === 1 ? "link" : "links"}</td>
+                          <td className="px-4 py-3 align-top text-gray-500">{formatDate(event.lastCheckedAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
           </div>
 
           <div className="card overflow-hidden">

@@ -49,7 +49,7 @@ from .package_curation import (
 )
 from .parsers.base import detect_parser
 from .parsers.hytek import CRITICAL_CHECKS, IDENTITY_CHECKS, ConfidenceReport, ParsedMeet
-from .source_monitoring import canonicalize_url
+from .source_monitoring import acknowledge_imported_source_manifest, canonicalize_url
 
 
 @dataclass(frozen=True)
@@ -418,6 +418,8 @@ def import_parsed_competition_documents(
     end_date: date | None = None,
     identity_source: str = "operator",
     document_identity: Mapping[str, CompetitionIdentity] | None = None,
+    source_event_id: int | None = None,
+    expected_source_manifest_sha256: str | None = None,
 ) -> CompetitionImportSummary:
     """Validate a complete parser output set, then atomically populate the RDB.
 
@@ -440,6 +442,10 @@ def import_parsed_competition_documents(
     _preflight_documents(
         documents, identity=identity, document_identity=document_identity
     )
+    if (source_event_id is None) != (expected_source_manifest_sha256 is None):
+        raise ValueError(
+            "Source-bound imports require both source_event_id and expected_source_manifest_sha256"
+        )
 
     created_archive_paths: set[Path] = set()
     try:
@@ -501,6 +507,7 @@ def import_parsed_competition_documents(
                 competition_title=title,
                 parsed=parsed,
                 legacy_meet=meet,
+                source_event_id=source_event_id,
                 identity=resolved_identity,
                 source_document_sha=document.sha256,
                 evidence_key=evidence_key_for_document(parsed, segment_name),
@@ -556,6 +563,37 @@ def import_parsed_competition_documents(
 
         if edition_id is None:
             raise ValueError("Competition package did not resolve an edition")
+        if source_event_id is not None:
+            assert expected_source_manifest_sha256 is not None
+            if any(document.source_url is None for document in documents):
+                raise ValueError("Source-bound imports require an official URL for every document")
+            edition = db.get(CompetitionEdition, edition_id)
+            if edition is None:
+                raise ValueError("Competition package edition disappeared during import")
+            acknowledge_imported_source_manifest(
+                db,
+                edition,
+                source_key=source_key,
+                source_event_id=source_event_id,
+                expected_manifest_sha256=expected_source_manifest_sha256,
+                imported_document_urls=[
+                    document.source_url for document in documents if document.source_url is not None
+                ],
+                is_curated_subset=(
+                    len({document.curation_policy_id for document in documents}) == 1
+                    and all(document.curation_policy_id is not None for document in documents)
+                ),
+            )
+        else:
+            edition = db.get(CompetitionEdition, edition_id)
+            if edition is None:
+                raise ValueError("Competition package edition disappeared during import")
+            # This rebuild did not validate against a current source event. Keep
+            # the page association, but never let an older snapshot describe
+            # these newly replaced sessions/results as current.
+            edition.sourceManifestSha256 = None
+            edition.sourceManifestCaptureKind = None
+            edition.sourceManifestCapturedAt = None
 
         # A curated package is the authority on what its sessions contain: a
         # document dropped from it must not leave rows behind.

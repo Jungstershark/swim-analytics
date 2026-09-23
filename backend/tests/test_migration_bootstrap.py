@@ -51,6 +51,13 @@ def test_empty_database_upgrades_to_competition_schema(tmp_path: Path):
     assert result_column_metadata["isExhibition"]["nullable"] is False
     relay_columns = {column["name"] for column in schema.get_columns("RelayResult")}
     assert {"sessionId", "legParseStatus", "legParseWarning", "resultStatus"} <= relay_columns
+    source_event_columns = {column["name"] for column in schema.get_columns("SourceEvent")}
+    assert "manifestSha256" in source_event_columns
+    edition_columns = {column["name"] for column in schema.get_columns("CompetitionEdition")}
+    assert {"sourceManifestSha256", "sourceManifestCaptureKind", "sourceManifestCapturedAt"} <= edition_columns
+    assert "CompetitionEdition_sourceEvent_uq" in {
+        index["name"] for index in schema.get_indexes("CompetitionEdition") if index["unique"]
+    }
     assert "RelayResult_leg_parse_status_ck" in {
         constraint["name"] for constraint in schema.get_check_constraints("RelayResult")
     }

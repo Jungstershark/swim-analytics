@@ -2324,6 +2324,28 @@ def _source_rule_to_admin(rule: SourceRule, db: Session | None = None) -> dict:
     }
 
 
+def _source_event_processing_status(event: SourceEvent) -> str:
+    """Return the conservative processing state for one discovered source page."""
+    linked_editions = event.competitionEditions
+    if len(linked_editions) > 1:
+        return "import_link_conflict"
+    if linked_editions:
+        edition = linked_editions[0]
+        snapshot = edition.sourceManifestSha256
+        if not snapshot:
+            # A source-event link proves a deliberately recorded import
+            # relationship, but no snapshot cannot claim the page is unchanged.
+            return "imported_without_manifest_baseline"
+        if snapshot != event.manifestSha256:
+            return "source_changed_since_import"
+        if edition.sourceManifestCaptureKind == "monitoring_baseline":
+            return "imported_since_tracking"
+        return "imported_links_unchanged_bytes_unchecked"
+    if event.readinessStatus == "results_available":
+        return "results_not_imported"
+    return "waiting_for_results"
+
+
 def _source_event_to_admin(event: SourceEvent) -> dict:
     return {
         "id": event.id,
@@ -2333,6 +2355,7 @@ def _source_event_to_admin(event: SourceEvent) -> dict:
         "url": event.url,
         "sourceYear": event.sourceYear,
         "readinessStatus": event.readinessStatus,
+        "processingStatus": _source_event_processing_status(event),
         "isCurrentlyListed": event.isCurrentlyListed,
         "pdfCount": event.pdfCount,
         "resultPdfCount": event.resultPdfCount,
@@ -2392,7 +2415,10 @@ def admin_list_sources(db: Session = Depends(get_db)):
 def admin_list_source_events(db: Session = Depends(get_db)):
     events = (
         db.query(SourceEvent)
-        .options(joinedload(SourceEvent.documents))
+        .options(
+            joinedload(SourceEvent.documents),
+            joinedload(SourceEvent.competitionEditions),
+        )
         .order_by(SourceEvent.isCurrentlyListed.desc(), SourceEvent.sourceYear.desc(), SourceEvent.title)
         .all()
     )

@@ -46,6 +46,17 @@ def main() -> int:
     parser.add_argument("--title", required=True, help="Authoritative umbrella competition title")
     parser.add_argument("--curation-policy", type=Path, default=None)
     parser.add_argument(
+        "--source-event-id",
+        type=int,
+        default=None,
+        help="Reviewed source-event ID; requires --expected-source-manifest-sha256",
+    )
+    parser.add_argument(
+        "--expected-source-manifest-sha256",
+        default=None,
+        help="Reviewed 64-character source manifest SHA-256; requires --source-event-id",
+    )
+    parser.add_argument(
         "--identity",
         type=Path,
         default=None,
@@ -63,6 +74,8 @@ def main() -> int:
         help="Durable content-addressed raw-document root",
     )
     args = parser.parse_args()
+    if (args.source_event_id is None) != (args.expected_source_manifest_sha256 is None):
+        parser.error("--source-event-id and --expected-source-manifest-sha256 must be supplied together")
 
     document_identity = _load_document_identity(args.identity)
     manifest_path = args.manifest.resolve(strict=True)
@@ -86,6 +99,8 @@ def main() -> int:
             documents=package.documents,
             archive_root=args.archive_root,
             document_identity=document_identity,
+            source_event_id=args.source_event_id,
+            expected_source_manifest_sha256=args.expected_source_manifest_sha256,
         )
     finally:
         db.close()

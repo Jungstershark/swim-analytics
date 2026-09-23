@@ -7,6 +7,7 @@ slices can consume this source catalog.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import re
@@ -14,13 +15,27 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Collection
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import MonitorRun, SourceEvent, SourceEventDocument, SourceRule, SourceSite
+from .models import (
+    CompetitionDay,
+    CompetitionEdition,
+    CompetitionSegment,
+    CompetitionSession,
+    MonitorRun,
+    RawDocument,
+    RelayResult,
+    Result,
+    SourceEvent,
+    SourceEventDocument,
+    SourceReference,
+    SourceRule,
+    SourceSite,
+)
 
 SGA_BASE_URL = "https://www.sgaquatics.org.sg"
 SGA_INDEX_URL = "https://www.sgaquatics.org.sg/swimming/events/event-results/"
@@ -69,6 +84,189 @@ class DiscoveredEvent:
 
 def canonical_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def source_event_manifest_sha256(event: DiscoveredEvent) -> str:
+    """Hash the discovered page and its current official-link manifest.
+
+    This is intentionally metadata-only: a catalogue check compares the event
+    page's semantic fields and canonical document links without downloading PDFs.
+    A document-byte replacement at an unchanged URL stays outside this cheap
+    check and needs an explicit document-hash workflow.
+    """
+    payload = {
+        "version": 1,
+        "title": event.title,
+        "page_title": event.page_title,
+        "url": event.url,
+        "readiness_status": event.readiness_status,
+        "source_year": event.source_year,
+        "source_date_label": event.source_date_label,
+        "status_reason": event.status_reason,
+        "pdf_count": event.pdf_count,
+        "result_pdf_count": event.result_pdf_count,
+        "category_counts": event.category_counts,
+        "documents": sorted(
+            (
+                {"url": document.url, "filename": document.filename, "category": document.category}
+                for document in event.documents
+            ),
+            key=lambda document: (document["url"], document["filename"], document["category"]),
+        ),
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _edition_source_page_urls(db: Session, edition: CompetitionEdition) -> set[str]:
+    """Return source-page evidence attached to documents in one edition."""
+    session_ids = [
+        session_id
+        for (session_id,) in db.query(CompetitionSession.id)
+        .join(CompetitionDay, CompetitionDay.id == CompetitionSession.competitionDayId)
+        .join(CompetitionSegment, CompetitionSegment.id == CompetitionDay.competitionSegmentId)
+        .filter(CompetitionSegment.competitionEditionId == edition.id)
+        .all()
+    ]
+    if not session_ids:
+        return set()
+    document_hashes = {
+        value
+        for (value,) in db.query(CompetitionSession.sourceDocumentSha)
+        .filter(CompetitionSession.id.in_(session_ids), CompetitionSession.sourceDocumentSha.isnot(None))
+        .all()
+    }
+    document_hashes.update(
+        value
+        for (value,) in db.query(Result.sourceDocumentSha256)
+        .filter(Result.sessionId.in_(session_ids), Result.sourceDocumentSha256.isnot(None))
+        .distinct()
+        .all()
+    )
+    document_hashes.update(
+        value
+        for (value,) in db.query(RelayResult.sourceDocumentSha256)
+        .filter(RelayResult.sessionId.in_(session_ids), RelayResult.sourceDocumentSha256.isnot(None))
+        .distinct()
+        .all()
+    )
+    if not document_hashes:
+        return set()
+    rows = (
+        db.query(SourceReference.sourcePageUrl)
+        .join(RawDocument, RawDocument.id == SourceReference.rawDocumentId)
+        .filter(RawDocument.sha256.in_(document_hashes))
+        .all()
+    )
+    return {canonicalize_url(page_url) for (page_url,) in rows if page_url}
+
+
+def backfill_source_event_links(db: Session) -> dict[str, int]:
+    """Link historical pages only when URL and imported-document evidence agree.
+
+    A historical association does *not* establish page freshness: no import
+    snapshot is populated. The next source-bound re-import is the only action
+    that can make an edition current against a known live manifest.
+    """
+    editions = db.query(CompetitionEdition).filter(CompetitionEdition.sourceEventId.is_(None)).all()
+    by_url: dict[str, list[CompetitionEdition]] = {}
+    for edition in editions:
+        by_url.setdefault(canonicalize_url(edition.sourceKey), []).append(edition)
+
+    summary = {
+        "linked": 0,
+        "skipped_ambiguous": 0,
+        "skipped_no_exact_match": 0,
+        "skipped_missing_source_evidence": 0,
+    }
+    events = (
+        db.query(SourceEvent)
+        .join(SourceRule, SourceRule.id == SourceEvent.sourceRuleId)
+        .join(SourceSite, SourceSite.id == SourceRule.sourceSiteId)
+        .filter(SourceSite.adapterType == "sgaquatics_events")
+        .all()
+    )
+    events_by_url: dict[str, list[SourceEvent]] = {}
+    for event in events:
+        events_by_url.setdefault(canonicalize_url(event.url), []).append(event)
+    for canonical_event_url, matching_events in events_by_url.items():
+        candidates = by_url.get(canonical_event_url, [])
+        if len(matching_events) != 1:
+            if candidates:
+                summary["skipped_ambiguous"] += 1
+            continue
+        event = matching_events[0]
+        if event.competitionEditions:
+            continue
+        if len(candidates) != 1:
+            summary["skipped_ambiguous" if candidates else "skipped_no_exact_match"] += 1
+            continue
+        edition = candidates[0]
+        if canonical_event_url not in _edition_source_page_urls(db, edition):
+            summary["skipped_missing_source_evidence"] += 1
+            continue
+        edition.sourceEventId = event.id
+        # Do not copy the current source manifest here. Legacy imports predate
+        # monitoring, so their source state at import time is unknowable.
+        by_url[canonical_event_url].remove(edition)
+        summary["linked"] += 1
+    db.flush()
+    return summary
+
+
+def acknowledge_imported_source_manifest(
+    db: Session,
+    edition: CompetitionEdition,
+    *,
+    source_key: str,
+    source_event_id: int,
+    expected_manifest_sha256: str,
+    imported_document_urls: Collection[str],
+    is_curated_subset: bool = False,
+    captured_at: datetime | None = None,
+) -> None:
+    """Record a current manifest only for an explicitly source-bound import.
+
+    The caller must carry the reviewed event ID and fingerprint into the import
+    transaction. The imported result-document set must still be the event's
+    current allowed result-document set; otherwise the complete import rolls
+    back rather than silently making stale archives look current.
+    """
+    event = db.get(SourceEvent, source_event_id)
+    if event is None:
+        raise ValueError(f"Source event {source_event_id} does not exist")
+    canonical_source_key = canonicalize_url(source_key)
+    if canonicalize_url(event.url) != canonical_source_key:
+        raise ValueError("Source event URL does not match the competition source key")
+    if event.manifestSha256 != expected_manifest_sha256:
+        raise ValueError("Source page changed; refresh and review before importing")
+    try:
+        configured_categories = json.loads(event.source_rule.categoriesAllowedForImport or "[]")
+    except json.JSONDecodeError as exc:
+        raise ValueError("Source rule has invalid import-category policy") from exc
+    if not isinstance(configured_categories, list) or not all(
+        isinstance(category, str) for category in configured_categories
+    ):
+        raise ValueError("Source rule has invalid import-category policy")
+    allowed_categories = set(configured_categories)
+    current_document_urls = {
+        canonicalize_url(document.url, base_url=event.url)
+        for document in event.documents
+        if document.isCurrentlyListed and document.category in allowed_categories
+    }
+    imported_urls = {canonicalize_url(url, base_url=canonical_source_key) for url in imported_document_urls}
+    if not imported_urls or not imported_urls.issubset(current_document_urls):
+        raise ValueError("Imported documents do not match the reviewed current source page")
+    if imported_urls != current_document_urls and not is_curated_subset:
+        raise ValueError("A partial source import requires an approved curation policy")
+    if edition.sourceEventId is not None and edition.sourceEventId != event.id:
+        raise ValueError(
+            f"Competition edition {edition.id} is already linked to source event {edition.sourceEventId}"
+        )
+    edition.sourceEventId = event.id
+    edition.sourceManifestSha256 = event.manifestSha256
+    edition.sourceManifestCaptureKind = "imported"
+    edition.sourceManifestCapturedAt = captured_at or datetime.now(timezone.utc)
+    db.flush()
 
 
 def canonicalize_url(url: str, *, base_url: str | None = None, strip_trailing_slash: bool = True) -> str:
@@ -210,7 +408,18 @@ def _normalized_discoveries(rule: SourceRule, discovered: list[DiscoveredEvent])
         document_by_key: dict[str, DiscoveredDocument] = {}
         for document in event.documents:
             doc_url = canonicalize_url(document.url, base_url=event_url)
-            document_by_key[doc_url] = DiscoveredDocument(url=doc_url, filename=document.filename, category=document.category)
+            normalized_document = DiscoveredDocument(
+                url=doc_url,
+                filename=document.filename,
+                category=document.category,
+            )
+            existing_document = document_by_key.get(doc_url)
+            if existing_document is not None and existing_document != normalized_document:
+                raise ValueError(
+                    "Conflicting metadata for canonical source document URL: "
+                    f"{doc_url}"
+                )
+            document_by_key[doc_url] = normalized_document
 
         existing = normalized_by_url.get(event_url)
         if existing is None:
@@ -338,7 +547,7 @@ def run_discovery_preview(
         for discovered_event in discovered:
             event = existing_events.get(discovered_event.url)
             category_counts_json = canonical_json(discovered_event.category_counts)
-            event_changed_by_documents = False
+            discovered_manifest_sha256 = source_event_manifest_sha256(discovered_event)
             if event is None:
                 event = SourceEvent(
                     sourceRuleId=rule.id,
@@ -353,6 +562,7 @@ def run_discovery_preview(
                     pdfCount=discovered_event.pdf_count,
                     resultPdfCount=discovered_event.result_pdf_count,
                     categoryCountsJson=category_counts_json,
+                    manifestSha256=discovered_manifest_sha256,
                     lastSeenInIndexAt=now,
                     lastCheckedAt=now,
                     lastChangedAt=now,
@@ -361,15 +571,7 @@ def run_discovery_preview(
                 db.flush()
                 run.addedEvents += 1
             else:
-                changed = any([
-                    event.title != discovered_event.title,
-                    event.pageTitle != discovered_event.page_title,
-                    event.readinessStatus != discovered_event.readiness_status,
-                    event.pdfCount != discovered_event.pdf_count,
-                    event.resultPdfCount != discovered_event.result_pdf_count,
-                    event.categoryCountsJson != category_counts_json,
-                    event.isCurrentlyListed is not True,
-                ])
+                changed = event.manifestSha256 != discovered_manifest_sha256 or not event.isCurrentlyListed
                 event.title = discovered_event.title
                 event.pageTitle = discovered_event.page_title
                 event.sourceYear = discovered_event.source_year or event.sourceYear or _extract_year(discovered_event.title)
@@ -409,12 +611,10 @@ def run_discovery_preview(
                         isCurrentlyListed=True,
                     ))
                     run.addedDocuments += 1
-                    event_changed_by_documents = True
                 else:
                     metadata_changed = existing_doc.filename != document.filename or existing_doc.category != document.category
                     if not existing_doc.isCurrentlyListed or metadata_changed:
                         run.updatedDocuments += 1
-                        event_changed_by_documents = True
                     else:
                         run.unchangedDocuments += 1
                     existing_doc.url = document.url
@@ -429,10 +629,8 @@ def run_discovery_preview(
                     existing_doc.isCurrentlyListed = False
                     existing_doc.lastCheckedAt = now
                     run.updatedDocuments += 1
-                    event_changed_by_documents = True
 
-            if event_changed_by_documents and event.lastChangedAt != now:
-                event.lastChangedAt = now
+            event.manifestSha256 = discovered_manifest_sha256
 
         run.eventsDiscovered = len(discovered)
         run.eventsWithResults = sum(1 for event in discovered if event.readiness_status == "results_available")

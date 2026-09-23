@@ -893,6 +893,16 @@ export interface AdminSourceEvent {
   url: string;
   sourceYear: string | null;
   readinessStatus: string;
+  processingStatus:
+    | "results_not_imported"
+    | "waiting_for_results"
+    | "source_changed_since_import"
+    | "imported_since_tracking"
+    | "imported_links_unchanged_bytes_unchecked"
+    | "imported_current"
+    | "imported_without_manifest_baseline"
+    | "import_link_conflict"
+    | string;
   isCurrentlyListed: boolean;
   pdfCount: number;
   resultPdfCount: number;

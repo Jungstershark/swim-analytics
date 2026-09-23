@@ -36,6 +36,7 @@ from app.models import (
     RelayResult,
     Result,
     SourceReference,
+    SourceEvent,
     Swimmer,
 )
 from app.parsers.hytek import (
@@ -45,6 +46,12 @@ from app.parsers.hytek import (
     ParsedRelayResult,
     parse_hytek_pdf,
     parse_hytek_text,
+)
+from app.source_monitoring import (
+    DiscoveredDocument,
+    DiscoveredEvent,
+    ensure_default_sgaquatics_source,
+    run_discovery_preview,
 )
 from app.package_import import (
     ParsedCompetitionDocument,
@@ -68,6 +75,43 @@ Event 1 Men 50 LC Meter Freestyle
 Name Age Team Seed Time Finals Time
 1 Example, Athlete 20 Example Club 24.00 23.50"""
     return parse_hytek_text([page])[0]
+
+
+def test_hierarchy_import_does_not_claim_a_manifest_without_explicit_source_review():
+    db = _test_session()
+    _site, rule = ensure_default_sgaquatics_source(db)
+    source_page = "https://example.test/imported-hierarchy/"
+    discovered = DiscoveredEvent(
+        title="Imported hierarchy",
+        page_title="Imported hierarchy",
+        url=source_page,
+        readiness_status="results_available",
+        pdf_count=1,
+        result_pdf_count=1,
+        category_counts={"overall_results": 1},
+        documents=[
+            DiscoveredDocument(
+                url=f"{source_page}result.pdf",
+                filename="result.pdf",
+                category="overall_results",
+            )
+        ],
+    )
+    run_discovery_preview(db, rule.id, discover=lambda _rule: [discovered])
+    event = db.query(SourceEvent).one()
+
+    session = upsert_competition_hierarchy(
+        db,
+        source_key=source_page,
+        competition_title="Imported hierarchy",
+        parsed=_parsed("Imported hierarchy", "1/6/2026 to 1/6/2026", 1, 1),
+    )
+
+    edition = session.day.segment.competition
+    assert edition.sourceEventId is None
+    assert edition.sourceManifestSha256 is None
+    assert edition.sourceManifestCaptureKind is None
+    assert edition.sourceManifestCapturedAt is None
 
 
 def _pre_exhibition_case(db: Session, tmp_path: Path) -> dict:

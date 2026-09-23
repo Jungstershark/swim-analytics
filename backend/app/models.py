@@ -75,6 +75,9 @@ class SourceEvent(Base):
     pdfCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     resultPdfCount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     categoryCountsJson: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SHA-256 of the latest canonical event-page/document manifest. This is a
+    # quick metadata comparison only; document bytes are not fetched on refresh.
+    manifestSha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     firstSeenAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     lastSeenInIndexAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lastCheckedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -85,9 +88,14 @@ class SourceEvent(Base):
 
     source_rule: Mapped["SourceRule"] = relationship(back_populates="source_events")
     documents: Mapped[list["SourceEventDocument"]] = relationship(back_populates="source_event", cascade="all, delete-orphan")
+    competitionEditions: Mapped[list["CompetitionEdition"]] = relationship(back_populates="source_event")
 
     __table_args__ = (
         UniqueConstraint("sourceRuleId", "url", name="SourceEvent_rule_url_uq"),
+        CheckConstraint(
+            '"manifestSha256" IS NULL OR length("manifestSha256") = 64',
+            name="SourceEvent_manifest_sha_ck",
+        ),
         Index("SourceEvent_rule_status_idx", "sourceRuleId", "readinessStatus"),
     )
 
@@ -385,6 +393,11 @@ class CompetitionEdition(Base):
     sourceEventId: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("SourceEvent.id", ondelete="SET NULL"), nullable=True
     )
+    # A source page is acknowledged only by an explicit import, or by the
+    # conservative one-time monitoring baseline used for legacy imports.
+    sourceManifestSha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sourceManifestCaptureKind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sourceManifestCapturedAt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     startDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
     endDate: Mapped[calendar_date | None] = mapped_column(Date, nullable=True)
     resolutionStatus: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
@@ -396,6 +409,7 @@ class CompetitionEdition(Base):
     segments: Mapped[list["CompetitionSegment"]] = relationship(
         back_populates="competition", cascade="all, delete-orphan"
     )
+    source_event: Mapped["SourceEvent | None"] = relationship(back_populates="competitionEditions")
 
     __table_args__ = (
         CheckConstraint(
@@ -403,10 +417,34 @@ class CompetitionEdition(Base):
             name="CompetitionEdition_date_range_ck",
         ),
         CheckConstraint(
+            '"sourceManifestCaptureKind" IS NULL OR "sourceManifestCaptureKind" IN (\'imported\', \'monitoring_baseline\')',
+            name="CompetitionEdition_manifest_capture_kind_ck",
+        ),
+        CheckConstraint(
+            '"sourceManifestSha256" IS NULL OR length("sourceManifestSha256") = 64',
+            name="CompetitionEdition_manifest_sha_ck",
+        ),
+        CheckConstraint(
+            '("sourceManifestSha256" IS NULL AND "sourceManifestCaptureKind" IS NULL) OR '
+            '("sourceManifestSha256" IS NOT NULL AND "sourceManifestCaptureKind" IS NOT NULL)',
+            name="CompetitionEdition_manifest_capture_pair_ck",
+        ),
+        CheckConstraint(
+            '"sourceManifestCaptureKind" IS NULL OR "sourceManifestCapturedAt" IS NOT NULL',
+            name="CompetitionEdition_manifest_capture_time_ck",
+        ),
+        CheckConstraint(
             '"resolutionStatus" IN (\'unknown\', \'derived\', \'verified\', \'conflicting\')',
             name="CompetitionEdition_resolution_status_ck",
         ),
         Index("CompetitionEdition_sourceKey_idx", "sourceKey"),
+        Index(
+            "CompetitionEdition_sourceEvent_uq",
+            "sourceEventId",
+            unique=True,
+            sqlite_where=text('"sourceEventId" IS NOT NULL'),
+            postgresql_where=text('"sourceEventId" IS NOT NULL'),
+        ),
         Index("CompetitionEdition_dates_idx", "startDate", "endDate"),
     )
 
