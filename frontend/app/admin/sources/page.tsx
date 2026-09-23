@@ -45,6 +45,12 @@ function statusPill(status: string | null) {
 }
 
 function readinessPill(status: string) {
+  const labels: Record<string, string> = {
+    results_available: "Result PDFs found · ready to review",
+    documents_available_no_results: "Information found · no result PDF yet",
+    pending_no_documents: "Competition page found · documents not uploaded yet",
+    no_documents_found: "No documents found on this page",
+  };
   const classes: Record<string, string> = {
     results_available: "bg-ssa-teal/10 text-ssa-teal ring-ssa-teal/20",
     documents_available_no_results: "bg-amber-50 text-amber-700 ring-amber-200",
@@ -53,7 +59,7 @@ function readinessPill(status: string) {
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${classes[status] || classes.no_documents_found}`}>
-      {status.replaceAll("_", " ")}
+      {labels[status] || labels.no_documents_found}
     </span>
   );
 }
@@ -105,17 +111,11 @@ export default function AdminSourcesPage() {
 
   const totals = useMemo(() => {
     return {
-      sources: sources.length,
-      rules: sources.reduce((sum, site) => sum + site.rules.length, 0),
       events: events.length,
       resultReadyEvents: events.filter((event) => event.readinessStatus === "results_available").length,
       documents: events.reduce((sum, event) => sum + event.documentCount, 0),
-      actionRequired: sources.reduce(
-        (sum, site) => sum + site.rules.reduce((inner, rule) => inner + rule.actionRequiredCount, 0),
-        0
-      ),
     };
-  }, [sources, events]);
+  }, [events]);
 
   async function handleRun(ruleId: number) {
     setRunningRuleId(ruleId);
@@ -124,7 +124,7 @@ export default function AdminSourcesPage() {
     try {
       const result = await runSourceDiscoveryPreview(ruleId);
       setSuccessMessage(
-        `Discovery preview completed: ${result.data.eventsDiscovered.toLocaleString()} source events and ${result.data.addedDocuments.toLocaleString()} new document links were cataloged. Swim results were not imported.`
+        `Catalogue check complete: ${result.data.eventsDiscovered.toLocaleString()} competition pages were checked and ${result.data.addedDocuments.toLocaleString()} newly found official links were added to the review list. No results were imported.`
       );
       await load({ clearMessages: false });
     } catch (e: any) {
@@ -150,13 +150,12 @@ export default function AdminSourcesPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <div className="h-1 w-10 bg-ssa-teal rounded-full" />
-                <span className="text-ssa-teal text-sm font-semibold uppercase tracking-wider">Source Monitoring</span>
+                <span className="text-ssa-teal text-sm font-semibold uppercase tracking-wider">Official results</span>
               </div>
-              <h1 className="text-2xl font-bold text-ssa-navy">Official Source Rules</h1>
+              <h1 className="text-2xl font-bold text-ssa-navy">Check official competition pages</h1>
               <p className="text-gray-500 text-sm mt-1 max-w-3xl">
-                Visible configuration for official result sources. This page shows what sites are monitored,
-                how discovery is triggered, which document categories are cataloged for preview, and what changed in the latest run.
-                Auto-import is disabled: discovery preview only catalogs source event/document links and does not import swim results.
+                Review competition pages found on SG Aquatics and see which ones have possible result PDFs.
+                Checking the catalogue only saves official links for review—it never creates a meet, swimmer, time, or result by itself.
               </p>
             </div>
             <button onClick={() => load()} className="btn-outline justify-center">
@@ -179,28 +178,41 @@ export default function AdminSourcesPage() {
           </div>
         )}
 
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>Discovery preview only.</strong> Auto-import is disabled. Running discovery updates source event and document-link catalog metadata only; it does not create meets, swimmers, times, relay rows, or imported results.
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          {[
-            ["Sources", totals.sources],
-            ["Rules", totals.rules],
-            ["Known Events", totals.events],
-            ["Result Ready", totals.resultReadyEvents],
-            ["Document Links", totals.documents],
-            ["Action Required", totals.actionRequired],
-          ].map(([label, value]) => (
-            <div key={label} className="card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</p>
-              <p className="mt-2 text-2xl font-bold text-ssa-navy">{value}</p>
+        {state !== "loading" && (
+          <section className="rounded-2xl border border-ssa-teal/20 bg-gradient-to-br from-ssa-teal/10 to-white p-5 sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ssa-teal">Official catalogue coverage</p>
+                <h2 className="mt-1 text-xl font-bold text-ssa-navy">
+                  {totals.resultReadyEvents.toLocaleString()} competition {totals.resultReadyEvents === 1 ? "page has" : "pages have"} possible result PDFs
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-gray-600">
+                  This is the current SG Aquatics catalogue, including earlier competitions—not a list of newly announced competitions or work that must be done now. No results have been imported.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center sm:min-w-[300px]">
+                {[
+                  ["Competition pages", totals.events],
+                  ["Official links", totals.documents],
+                  ["Last check", runs[0] ? formatDate(runs[0].finishedAt || runs[0].startedAt) : "Never"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-white bg-white/80 px-3 py-3 shadow-sm">
+                    <p className="text-xs font-medium text-gray-500">{label}</p>
+                    <p className="mt-1 text-sm font-semibold text-ssa-navy">{value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+            {runs.length === 1 && totals.events > 0 && (
+              <p className="mt-4 border-t border-ssa-teal/15 pt-3 text-xs text-gray-600">
+                This was the first saved catalogue check, so every page currently appears as newly found. Future checks will distinguish genuinely new or changed pages.
+              </p>
+            )}
+          </section>
+        )}
 
         {state === "loading" && (
-          <div className="card p-8 text-center text-gray-500">Loading source monitoring state...</div>
+          <div className="card p-8 text-center text-gray-500">Loading official competition pages...</div>
         )}
 
         {state !== "loading" && sources.map((site) => (
@@ -211,7 +223,7 @@ export default function AdminSourcesPage() {
                   <div className="flex items-center gap-3">
                     <h2 className="text-lg font-semibold text-ssa-navy">{site.name}</h2>
                     <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">{site.adapterType}</span>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${site.isEnabled ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${site.isEnabled ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-ssa-navy"}`}>
                       {site.isEnabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
@@ -228,82 +240,79 @@ export default function AdminSourcesPage() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">{rule.name}</h3>
+                        <h3 className="font-semibold text-gray-900">SG Aquatics competition catalogue</h3>
                         {statusPill(rule.lastStatus)}
-                        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
-                          {rule.scheduleLabel}
-                        </span>
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
-                          {rule.autoImportLabel}
-                        </span>
                       </div>
-                      <a href={rule.indexUrl} target="_blank" rel="noreferrer" className="mt-1 block text-sm text-ssa-teal hover:text-ssa-teal-dark break-all">
-                        {rule.indexUrl}
-                      </a>
+                      <p className="mt-1 max-w-2xl text-sm text-gray-600">
+                        Last checked {formatDate(rule.lastFinishedAt)}. We found {rule.eventsDiscovered.toLocaleString()} competition pages; {rule.eventsWithResults.toLocaleString()} have possible result PDFs to review.
+                      </p>
                     </div>
                     <button
                       onClick={() => handleRun(rule.id)}
                       disabled={runningRuleId === rule.id || !rule.enabled}
                       className={`btn-primary justify-center ${runningRuleId === rule.id || !rule.enabled ? "opacity-60 cursor-not-allowed" : ""}`}
                     >
-                      {runningRuleId === rule.id ? "Running discovery..." : "Run discovery preview"}
+                      {runningRuleId === rule.id ? "Checking SG Aquatics..." : "Check for newly listed competitions"}
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                    {[
-                      ["Last finished", formatDate(rule.lastFinishedAt)],
-                      ["Events discovered", rule.eventsDiscovered.toLocaleString()],
-                      ["With results", rule.eventsWithResults.toLocaleString()],
-                      ["Action required", rule.actionRequiredCount.toLocaleString()],
-                      ["Last trigger", rule.lastTriggerLabel],
-                    ].map(([label, value]) => (
-                      <div key={label} className="rounded-lg bg-gray-50 px-3 py-3">
-                        <p className="text-xs text-gray-500">{label}</p>
-                        <p className="mt-1 text-sm font-semibold text-gray-900">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-2">Readable platform rules</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {rule.policyLabels.map((label) => (
-                        <span key={label} className="rounded-full bg-gray-50 px-3 py-1 text-xs text-gray-700 ring-1 ring-gray-200">
-                          {label}
-                        </span>
-                      ))}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-ssa-teal/15 bg-ssa-teal/5 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500">Competition pages with result PDFs</p>
+                      <p className="mt-1 text-xl font-bold text-ssa-navy">{rule.eventsWithResults.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500">Competition pages checked</p>
+                      <p className="mt-1 text-xl font-bold text-ssa-navy">{rule.eventsDiscovered.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <p className="text-xs font-medium text-gray-500">What happens next</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">Review the official page before any import</p>
                     </div>
                   </div>
 
-                  {rule.lastRun && (
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                      <div className="flex flex-wrap items-center gap-2 mb-3">
-                        <h4 className="text-sm font-semibold text-gray-900">Latest monitor run</h4>
-                        {statusPill(rule.lastRun.status)}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-sm">
-                        {[
-                          ["Added events", rule.lastRun.addedEvents],
-                          ["Updated events", rule.lastRun.updatedEvents],
-                          ["Unchanged events", rule.lastRun.unchangedEvents],
-                          ["Absent events", rule.lastRun.absentFromIndexEvents],
-                          ["Added document links", rule.lastRun.addedDocuments],
-                          ["Updated catalog docs", rule.lastRun.updatedDocuments],
-                          ["Unchanged catalog docs", rule.lastRun.unchangedDocuments],
-                          ["Action required", rule.lastRun.actionRequiredCount],
-                        ].map(([label, value]) => (
-                          <div key={label}>
-                            <p className="text-xs text-gray-500">{label}</p>
-                            <p className="font-semibold text-ssa-navy">{Number(value).toLocaleString()}</p>
-                          </div>
+                  <p className="text-sm text-gray-600">
+                    Checking only updates this review list. It does not create a new competition or import results.
+                  </p>
+
+                  <details className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                    <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-ssa-navy">
+                      Advanced source settings and latest check details
+                    </summary>
+                    <div className="mt-4 space-y-4 border-t border-gray-200 pt-4">
+                      <a href={rule.indexUrl} target="_blank" rel="noreferrer" className="block break-all text-sm text-ssa-teal hover:text-ssa-teal-dark">
+                        Official catalogue: {rule.indexUrl}
+                      </a>
+                      <div className="flex flex-wrap gap-2">
+                        {rule.policyLabels.map((label) => (
+                          <span key={label} className="rounded-full bg-white px-3 py-1 text-xs text-gray-700 ring-1 ring-gray-200">
+                            {label}
+                          </span>
                         ))}
                       </div>
-                      {rule.lastRun.errorMessage && (
-                        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{rule.lastRun.errorMessage}</p>
+                      {rule.lastRun && (
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">Latest technical check</p>
+                          <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                            {[
+                              ["New catalogue pages", rule.lastRun.addedEvents],
+                              ["Changed pages", rule.lastRun.updatedEvents],
+                              ["New official links", rule.lastRun.addedDocuments],
+                              ["Needs review", rule.lastRun.actionRequiredCount],
+                            ].map(([label, value]) => (
+                              <div key={label}>
+                                <p className="text-xs text-gray-500">{label}</p>
+                                <p className="font-semibold text-ssa-navy">{Number(value).toLocaleString()}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {rule.lastRun.errorMessage && (
+                            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{rule.lastRun.errorMessage}</p>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </details>
                 </div>
               ))}
             </div>
@@ -313,17 +322,17 @@ export default function AdminSourcesPage() {
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           <div className="xl:col-span-2 card overflow-hidden">
             <div className="border-b border-gray-100 px-6 py-4">
-              <h2 className="font-semibold text-ssa-navy">Discovered source events</h2>
-              <p className="text-sm text-gray-500 mt-1">Persistent catalog survives SG Aquatics year-end page rollover.</p>
+              <h2 className="font-semibold text-ssa-navy">Competition pages to review</h2>
+              <p className="text-sm text-gray-500 mt-1">Official SG Aquatics pages. “Result PDFs found” means documents are available to inspect—not that results have been imported.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-100 text-sm">
                 <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
                   <tr>
-                    <th scope="col" className="px-4 py-3">Event</th>
-                    <th scope="col" className="px-4 py-3">Status</th>
-                    <th scope="col" className="px-4 py-3">Document Links</th>
-                    <th scope="col" className="px-4 py-3">Last seen</th>
+                    <th scope="col" className="px-4 py-3">Competition</th>
+                    <th scope="col" className="px-4 py-3">What we found</th>
+                    <th scope="col" className="px-4 py-3">Official documents</th>
+                    <th scope="col" className="px-4 py-3">Last checked</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
@@ -335,15 +344,20 @@ export default function AdminSourcesPage() {
                         </a>
                         <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
                           {event.sourceYear && <span>{event.sourceYear}</span>}
-                          <span>{event.isCurrentlyListed ? "Currently listed" : "Retained from older index"}</span>
+                          <span>{event.isCurrentlyListed ? "Listed on SG Aquatics" : "Kept from an older catalogue page"}</span>
+                          <a href={event.url} target="_blank" rel="noreferrer" className="font-medium text-ssa-teal hover:text-ssa-teal-dark">Open official page ↗</a>
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top">{readinessPill(event.readinessStatus)}</td>
                       <td className="px-4 py-3 align-top text-gray-700">
-                        {event.documentCount} document links<br />
-                        <span className="text-xs text-gray-500">{event.resultPdfCount} result PDFs</span>
+                        {event.documentCount} official document {event.documentCount === 1 ? "link" : "links"}<br />
+                        <span className="text-xs text-gray-500">
+                          {event.resultPdfCount > 0
+                            ? `${event.resultPdfCount} result PDF${event.resultPdfCount === 1 ? "" : "s"} to review`
+                            : "No result PDF found"}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 align-top text-gray-500">{formatDate(event.lastSeenInIndexAt)}</td>
+                      <td className="px-4 py-3 align-top text-gray-500">{formatDate(event.lastCheckedAt)}</td>
                     </tr>
                   ))}
                   {events.length === 0 && (
@@ -358,23 +372,23 @@ export default function AdminSourcesPage() {
 
           <div className="card overflow-hidden">
             <div className="border-b border-gray-100 px-6 py-4">
-              <h2 className="font-semibold text-ssa-navy">Recent monitor runs</h2>
-              <p className="text-sm text-gray-500 mt-1">Manual-only in this slice. No hidden scheduler.</p>
+              <h2 className="font-semibold text-ssa-navy">Previous catalogue checks</h2>
+              <p className="text-sm text-gray-500 mt-1">A check discovers official pages and links only. It never imports results automatically.</p>
             </div>
             <div className="divide-y divide-gray-100">
               {runs.slice(0, 8).map((run) => (
                 <div key={run.id} className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-gray-900">Run #{run.id}</p>
+                      <p className="text-sm font-medium text-gray-900">Catalogue check</p>
                       <p className="text-xs text-gray-500">{formatDate(run.finishedAt || run.startedAt)}</p>
                     </div>
                     {statusPill(run.status)}
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-600">
-                    <span>{run.eventsDiscovered} events</span>
-                    <span>{run.addedDocuments} link adds</span>
-                    <span>{run.actionRequiredCount} actions</span>
+                    <span>{run.eventsDiscovered} competition pages</span>
+                    <span>{run.addedDocuments} new official links</span>
+                    <span>{run.eventsWithResults} with result PDFs</span>
                   </div>
                   {run.errorMessage && <p className="mt-2 text-xs text-red-600">{run.errorMessage}</p>}
                 </div>
